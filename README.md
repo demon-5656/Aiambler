@@ -62,6 +62,30 @@ Native smoke tests:
 make test-native
 ```
 
+## Speed Comparison
+
+Run the local benchmark:
+
+```bash
+make native
+python3 benchmarks/run.py --runs 500 --rows 100
+```
+
+On the current machine, with 500 process launches per case:
+
+```text
+case                median ms    x ai
+aiambler math           0.890    1.00
+python math             8.189    9.21
+awk math                0.928    1.04
+aiambler text           0.778    1.00
+python text            12.120   15.57
+awk text                1.096    1.41
+```
+
+This measures full process startup plus script execution. For tiny tasks that is
+the cost users feel most.
+
 ## Python Reference
 
 Use a virtual environment only if you need the Python prototype:

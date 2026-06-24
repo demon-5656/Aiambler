@@ -1,0 +1,3 @@
+text = file.read benchmarks/prices.txt
+text |> grep(price) |> sum |> out
+
