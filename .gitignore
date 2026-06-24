@@ -6,6 +6,7 @@ __pycache__/
 .coverage
 htmlcov/
 .venv*/
+.bench-venv/
 __pypackages__/
 .venv/
 dist/

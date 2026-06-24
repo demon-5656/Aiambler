@@ -2,9 +2,7 @@
 
 Aiambler is a compact executable intent language for AI agents.
 
-The runtime is a small native interpreter written in C. The repository no longer
-ships a Python implementation of the language; Python is used only for benchmark
-and evaluation helper scripts.
+The runtime is a small native interpreter written in C.
 
 This repository contains a v0.1 MVP implementation focused on small local tasks:
 
@@ -98,104 +96,75 @@ Native smoke tests:
 make test-native
 ```
 
-## Speed Comparison
+## Benchmarks
 
-Run the local benchmark:
+Build the native binary before running benchmarks:
 
 ```bash
 make native
-python3 benchmarks/run.py --runs 500 --rows 100
 ```
 
-On the current machine, with 500 process launches per case:
+Small startup-heavy tasks:
+
+```bash
+python3 benchmarks/run.py --runs 300 --rows 100
+```
+
+Current local medians:
 
 ```text
-case                median ms    x ai
-aiambler math           0.890    1.00
-python math             8.189    9.21
-awk math                0.928    1.04
-aiambler text           0.778    1.00
-aiambler compact        0.717    0.90
-python text            12.120   15.57
-awk text                1.096    1.41
+aiambler math      0.886 ms
+python math        8.151 ms
+awk math           0.937 ms
+aiambler text      0.787 ms
+aiambler compact   0.823 ms
+python text       11.993 ms
+awk text           1.052 ms
 ```
 
-This measures full process startup plus script execution. For tiny tasks that is
-the cost users feel most.
-
-Heavy floating-point and matrix benchmarks:
+Heavy numeric tasks:
 
 ```bash
 python3 benchmarks/run.py --mode heavy --runs 3 --jobs 1,2,4,8,16 --fp-iters 3000000 --matrix-size 256
 ```
 
-Current result on a 16-thread machine:
+Current local medians:
 
 ```text
-case                median ms    vs ai-j1
-aiambler-j1 fp        106.227       1.00
-aiambler-j16 fp        10.029       0.09
-python fp            2087.363      19.65
-aiambler-j1 mm          8.880       1.00
-aiambler-j16 mm         2.849       0.32
-python mm            1609.822     181.29
-numpy mm               56.140       6.32
+aiambler-j1 fp     90.860 ms
+aiambler-j16 fp     9.764 ms
+python fp        2058.109 ms
+aiambler-j1 mm      8.758 ms
+aiambler-j16 mm     2.805 ms
+python mm        1556.135 ms
+numpy mm           56.418 ms
 ```
-
-The heavy benchmark also measures full process startup. NumPy includes Python
-startup and import overhead, so this is an end-to-end command latency comparison,
-not a BLAS-only microbenchmark.
 
 Agent workload benchmark:
 
 ```bash
-python3 benchmarks/agent_tasks.py --runs 50
+.bench-venv/bin/python benchmarks/agent_tasks.py --runs 30
 ```
 
-This benchmark compares five common agent tasks: log analysis, CSV finance
-aggregation, price extraction, text replacement, and a composite grep/nums/sum
-pipeline. It reports approximate code tokens as `chars / 4` plus median command
-latency for Aiambler, Python, and awk.
-
-Current local result with 20 runs:
-
-```text
-task          ai_tok py_tok awk_tok ai_ms py_ms  awk_ms ai_vs_py_tok
-logs              12     42      31  1.02 14.03   1.44        3.50
-finance           15     51      21  1.12 11.20   1.54        3.40
-prices_avg        13     50      36  0.96 13.82   2.41        3.85
-replace           15     24      19  1.23  8.69   1.16        1.60
-composite         12     42      31  1.05 12.42   1.27        3.50
-```
+Current local latency is about `1.0-1.2 ms` for the native runtime across the
+five bundled agent tasks.
 
 Token-only benchmark:
 
 ```bash
-python3 benchmarks/token_count.py
-# optional exact tokenizer when installed:
-python3 benchmarks/token_count.py --tiktoken
+.bench-venv/bin/python benchmarks/token_count.py --tiktoken
 ```
 
-Ollama generation test:
-
-```bash
-ollama serve
-python3 benchmarks/ollama_eval.py --model qwen2.5-coder:14b --task logs --targets ai --run-ai
-```
-
-The Ollama test measures model-side prompt/output token counts reported by
-Ollama and can optionally execute generated Aiambler to validate it.
-
-Known local smoke result:
+Current token-count result with `tiktoken:o200k_base`:
 
 ```text
-model=qwen2.5-coder:14b
-logs ai prompt_tok=138 out_tok=20 chars=49 run:0:101307
+task        ai_chars ai_tok py_chars py_tok awk_chars awk_tok py/ai awk/ai
+logs              50     20      169     56       124      51  2.80   2.55
+finance           61     27      204     60        85      31  2.22   1.15
+prices_avg        51     21      199     62       145      65  2.95   3.10
+replace           61     25       96     27        77      24  1.08   0.96
+composite         49     20      168     56       123      51  2.80   2.55
 ```
-
-Small models can fail the format-following test. For example,
-`deepseek-coder:1.3b` tended to produce Python prose instead of Aiambler compact
-code, which is useful as a negative benchmark for prompt robustness.
 
 Remove generated local artifacts:
 

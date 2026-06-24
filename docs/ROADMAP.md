@@ -2,8 +2,6 @@
 
 Aiambler should become a compact runtime for AI-generated commands, not a
 human-first scripting language. The native runtime is the source of truth.
-Python implementation code has been removed; Python remains only in benchmark
-and evaluation helper scripts.
 
 ## Principles
 
@@ -151,11 +149,8 @@ Benchmark package:
 
 - Maintain five real agent tasks: logs, finance CSV, extraction, replace,
   composite pipeline.
-- Report approximate generated-code tokens with `chars / 4`.
-- Optionally report exact tokenizer counts via `tiktoken` when installed.
-- Optionally ask Ollama to generate Aiambler/Python/awk and compare model-side
-  prompt/output token counts.
-- Report runtime latency for Aiambler, Python, and awk.
+- Report exact generated-code token counts via `tiktoken`.
+- Report runtime latency for Aiambler and baseline implementations.
 - Keep results in README after stable runs.
 
 Agent documentation:

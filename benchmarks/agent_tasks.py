@@ -121,10 +121,6 @@ def setup() -> list[Case]:
     ]
 
 
-def approx_tokens(text: str) -> int:
-    return max(1, round(len(text) / 4))
-
-
 def time_cmd(cmd: list[str], runs: int) -> tuple[str, float]:
     out = ""
     samples = []
@@ -144,18 +140,12 @@ def main() -> int:
 
     cases = setup()
     print(f"runs={args.runs}")
-    print("task        ai_tok py_tok awk_tok ai_ms  py_ms  awk_ms  ai_vs_py_tok")
+    print("task         ai_ms  py_ms  awk_ms  out")
     for case in cases:
         ai_out, ai_ms = time_cmd(case.ai_cmd, args.runs)
         _py_out, py_ms = time_cmd(case.py_cmd, args.runs)
         _awk_out, awk_ms = time_cmd(case.awk_cmd, args.runs)
-        ai_tok = approx_tokens(case.ai)
-        py_tok = approx_tokens(case.py)
-        awk_tok = approx_tokens(case.awk)
-        print(
-            f"{case.name:<11} {ai_tok:6d} {py_tok:6d} {awk_tok:7d} "
-            f"{ai_ms:5.2f} {py_ms:6.2f} {awk_ms:7.2f} {py_tok / ai_tok:11.2f}  out={ai_out}"
-        )
+        print(f"{case.name:<11} {ai_ms:6.2f} {py_ms:6.2f} {awk_ms:7.2f}  {ai_out}")
     return 0
 
 
