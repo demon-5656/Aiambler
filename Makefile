@@ -27,4 +27,8 @@ bench-tokens:
 	python3 benchmarks/token_count.py
 
 clean:
-	rm -rf $(BUILD_DIR)
+	rm -rf $(BUILD_DIR) .pytest_cache .mypy_cache .ruff_cache htmlcov .coverage
+	rm -rf aiambler.egg-info
+	find . -type d -name __pycache__ -prune -exec rm -rf {} +
+	find benchmarks -maxdepth 1 \( -name 'generated_*.ai' -o -name prices.txt \) -delete
+	rm -rf benchmarks/agent_data

@@ -56,6 +56,20 @@ AI
 
 "$BIN" --dump-plan "$TMP_DIR/compact_finance.ai" > "$TMP_DIR/avg.out" 2> "$TMP_DIR/avg.err"
 grep -q "plan line 1: SCAN_AVG_CONTAINS" "$TMP_DIR/avg.err"
+grep -q "^53.33333333$" "$TMP_DIR/avg.out"
+
+cat > "$TMP_DIR/csv.txt" <<'TXT'
+name,price
+book,12.50
+pen,3.25
+TXT
+
+cat > "$TMP_DIR/compact_pick.ai" <<AI
+<$TMP_DIR/csv.txt|@2|#|+|!
+AI
+
+"$BIN" "$TMP_DIR/compact_pick.ai" > "$TMP_DIR/compact_pick.out"
+grep -q "^15.75$" "$TMP_DIR/compact_pick.out"
 
 cat > "$TMP_DIR/longest.ai" <<AI
 <$TMP_DIR/input.txt|##|!
@@ -67,6 +81,9 @@ AI
 grep -q "READ($TMP_DIR/input.txt) COUNT OUT" "$TMP_DIR/longest.err"
 grep -q "GREP(price) NUMS AVG OUT" "$TMP_DIR/longest.err"
 grep -q "REPLACE(price=cost) OUT" "$TMP_DIR/longest.err"
+grep -q "^4$" "$TMP_DIR/longest.out"
+grep -q "^53.33333333$" "$TMP_DIR/longest.out"
+grep -q "cost: 120" "$TMP_DIR/longest.out"
 
 cat > "$TMP_DIR/compact_out.ai" <<'AI'
 a = 12 * 7 + 3

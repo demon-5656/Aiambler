@@ -39,6 +39,7 @@ binary. It supports:
 - variables
 - `file.read path`
 - quoted text literals
+- compact pipes: `?`, `#`, `##`, `+`, `+/`, `@N`, `~>old=new`, `!`
 - pipes: `grep(...)`, `nums`, `sum`, `count`, `len`, `out`
 - legacy mock pipes: `group(...)`, `sum(fields)`, `has(...)`, `out.md`
 - legacy mock connector examples: `task? ...`, `mail? ...`, `b24.task.update ...`
@@ -63,11 +64,23 @@ t<examples/numbers.txt
 t|?price|#|+|!
 ```
 
+CSV-like column extraction and text replacement:
+
+```aiambler
+<prices.csv|@2|#|+|!
+<report.txt|~>TODO=DONE|!
+```
+
 See [docs/OPERATORS.md](docs/OPERATORS.md) for the compact operator table.
 Compact file pipelines use a fused scan path for `?` + `#` + `+` + `!`.
 That path scans the file directly and does not materialize the full text buffer.
 Compact pipe chains are normalized into a small native `Op[]` IR before
 execution.
+
+Direct compact read pipelines such as `<file|?x|#|+|!`,
+`<file|?x|#|+/|!`, and `<file|?x|@2|#|+|!` execute through the planned
+scan/reduce kernel. Other compact file pipelines keep the lazy file source when
+possible and materialize text only for operations such as `##` and `~>`.
 
 Inspect compact IR and execution plan:
 
@@ -203,6 +216,12 @@ You can also run without installing the console script while developing:
 
 ```bash
 python -m aiambler examples/script.ai
+```
+
+Remove generated local artifacts:
+
+```bash
+make clean
 ```
 
 ## Examples

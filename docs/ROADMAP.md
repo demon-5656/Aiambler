@@ -111,8 +111,9 @@ path.
 
 Current planner status: direct compact `OP_READ` pipelines matching scan/reduce
 patterns execute through a specialized planned kernel instead of stepping through
-each `Op`. `OP_LOAD` pipelines still use the interpreter path because variables
-may hold non-file values.
+each `Op`. Supported planned forms include grep/nums/sum, nums/sum,
+grep/pick/nums/sum, and grep/nums/avg with output. `OP_LOAD` pipelines still use
+the interpreter path because variables may hold non-file values.
 
 ## Phase 4: Parallel Runtime
 
@@ -161,8 +162,9 @@ Integrations:
 
 Language expansion:
 
-- CSV column operations.
-- Implemented minimally as compact `@N` for CSV-like field selection.
+- CSV column operations: minimally implemented as compact `@N` for CSV-like
+  field selection.
+- Text replacement: minimally implemented as compact `~>old=new`.
 - Conditionals.
 - Minimal iteration/map.
 - HTTP client as guarded module.
