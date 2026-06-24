@@ -50,6 +50,12 @@ def bench(name: str, cmd: list[str], runs: int) -> dict[str, float | str]:
     }
 
 
+def result_group(name: str) -> str:
+    if name == "aiambler compact":
+        return "text"
+    return name.split()[-1]
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Aiambler native speed comparison")
     parser.add_argument("--runs", type=int, default=200)
@@ -68,6 +74,7 @@ def main() -> int:
             ("python math", ["python3", "benchmarks/math_std.py"]),
             ("awk math", ["awk", "BEGIN { a = 12 * 7 + 3; b = (a - 7) / 4; print b }"]),
             ("aiambler text", ["build/aiambler", "benchmarks/text.ai"]),
+            ("aiambler compact", ["build/aiambler", "benchmarks/compact_text.ai"]),
             ("python text", ["python3", "benchmarks/text.py"]),
             (
                 "awk text",
@@ -98,14 +105,14 @@ def main() -> int:
     results = [bench(name, cmd, args.runs) for name, cmd in cases]
     base_by_group = {}
     for item in results:
-        group = str(item["name"]).split()[-1]
+        group = result_group(str(item["name"]))
         if str(item["name"]).startswith("aiambler ") or str(item["name"]).startswith("aiambler-j1 "):
-            base_by_group[group] = float(item["median"])
+            base_by_group.setdefault(group, float(item["median"]))
     width = max(len(str(item["name"])) for item in results)
     print(f"runs={args.runs} rows={args.rows}")
     print(f"{'case':<{width}}  {'out':>8}  {'min ms':>9}  {'median ms':>10}  {'mean ms':>9}  {'p95 ms':>8}  {'x ai':>6}")
     for item in results:
-        group = str(item["name"]).split()[-1]
+        group = result_group(str(item["name"]))
         ratio = float(item["median"]) / base_by_group[group]
         print(
             f"{item['name']:<{width}}  {item['out']:>8}  "

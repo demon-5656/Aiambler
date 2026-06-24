@@ -56,6 +56,13 @@ text = file.read examples/numbers.txt
 text |> grep(price) |> nums |> sum |> out
 ```
 
+Compact core syntax:
+
+```aiambler
+t<examples/numbers.txt
+t|?price|#|+|!
+```
+
 Native smoke tests:
 
 ```bash
@@ -79,6 +86,7 @@ aiambler math           0.890    1.00
 python math             8.189    9.21
 awk math                0.928    1.04
 aiambler text           0.778    1.00
+aiambler compact        0.768    0.90
 python text            12.120   15.57
 awk text                1.096    1.41
 ```

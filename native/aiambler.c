@@ -98,7 +98,7 @@ static void strip_comment(char *s) {
         if ((*s == '"' || *s == '\'') && (s == start || s[-1] != '\\')) {
             quote = quote == 0 ? *s : (quote == *s ? 0 : quote);
         }
-        if (*s == '#' && quote == 0) {
+        if (*s == '#' && quote == 0 && (s == start || isspace((unsigned char)s[-1]))) {
             *s = '\0';
             return;
         }
@@ -754,6 +754,12 @@ static int run_file_read(char *expr, int line, Value *out) {
     return 1;
 }
 
+static int read_path(const char *path, int line, Value *out) {
+    char buf[MAX_LINE];
+    snprintf(buf, sizeof(buf), "file.read %s", path);
+    return run_file_read(buf, line, out);
+}
+
 static int apply_grep(Value *value, const char *needle) {
     if (value->type != VALUE_TEXT) {
         return 0;
@@ -999,6 +1005,9 @@ static int eval_atom(Runtime *rt, char *atom, int line, Value *out) {
     if (strncmp(atom, "file.read ", 10) == 0) {
         return run_file_read(atom, line, out);
     }
+    if (*atom == '<') {
+        return read_path(trim(atom + 1), line, out);
+    }
     if (strncmp(atom, "fp(", 3) == 0) {
         return run_fp(rt, atom, line, out);
     }
@@ -1025,6 +1034,18 @@ static int eval_atom(Runtime *rt, char *atom, int line, Value *out) {
 
 static int apply_step(Runtime *rt, Value *value, char *step, int line) {
     step = trim(step);
+    if (*step == '?') {
+        return apply_grep(value, trim(step + 1));
+    }
+    if (strcmp(step, "#") == 0) {
+        return apply_nums(value);
+    }
+    if (strcmp(step, "+") == 0) {
+        return apply_numeric_sum(value);
+    }
+    if (strcmp(step, "!") == 0) {
+        return apply_out_md(value);
+    }
     if (strncmp(step, "group(", 6) == 0) {
         char *arg = step + 6;
         char *end = strrchr(arg, ')');
@@ -1098,14 +1119,20 @@ static int eval_expr(Runtime *rt, char *expr, int line, Value *out) {
     int part_count = 0;
     char *cursor = expr;
     while (part_count < MAX_PIPE) {
-        char *pipe = strstr(cursor, "|>");
+        char *pipe = strchr(cursor, '|');
         if (pipe == NULL) {
-            parts[part_count++] = trim(cursor);
+            char *part = trim(cursor);
+            if (*part != '\0') {
+                parts[part_count++] = part;
+            }
             break;
         }
         *pipe = '\0';
-        parts[part_count++] = trim(cursor);
-        cursor = pipe + 2;
+        char *part = trim(cursor);
+        if (*part != '\0') {
+            parts[part_count++] = part;
+        }
+        cursor = pipe + (pipe[1] == '>' ? 2 : 1);
     }
     if (part_count == 0) {
         value_clear(out);
@@ -1155,6 +1182,22 @@ static int run_line(Runtime *rt, char *line, int line_no) {
         return 1;
     }
 
+    char *compact_read = strchr(line, '<');
+    if (compact_read != NULL && compact_read != line) {
+        *compact_read = '\0';
+        char *name = trim(line);
+        char *path = trim(compact_read + 1);
+        Value value;
+        if (!read_path(path, line_no, &value)) {
+            return 0;
+        }
+        if (!save_var(rt, name, &value)) {
+            fprintf(stderr, "ERR_RUNTIME\nline: %d\nreason: too many variables\n", line_no);
+            return 0;
+        }
+        return 1;
+    }
+
     char *eq = strchr(line, '=');
     if (eq != NULL) {
         *eq = '\0';
@@ -1172,6 +1215,13 @@ static int run_line(Runtime *rt, char *line, int line_no) {
     }
 
     Value value;
+    size_t len = strlen(line);
+    if (len > 1 && line[len - 1] == '!') {
+        line[len - 1] = '\0';
+        char compact_expr[MAX_LINE];
+        snprintf(compact_expr, sizeof(compact_expr), "%s|!", trim(line));
+        return eval_expr(rt, compact_expr, line_no, &value);
+    }
     return eval_expr(rt, line, line_no, &value);
 }
 
