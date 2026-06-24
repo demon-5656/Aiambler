@@ -3,7 +3,8 @@
 Aiambler is a compact executable intent language for AI agents.
 
 This Python package is the reference prototype. The lightweight runtime is the
-native C interpreter in `native/`.
+native C interpreter in `native/`. The language core is intended for small local
+tasks first: arithmetic, text parsing, and file reads.
 
 The Python reference contains:
 

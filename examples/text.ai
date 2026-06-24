@@ -1,0 +1,3 @@
+text = file.read examples/numbers.txt
+text |> grep(price) |> nums |> sum |> out
+

@@ -6,15 +6,15 @@ The primary runtime is a small native interpreter written in C. The Python code
 in this repository is a reference prototype and test harness, not the intended
 runtime for edge devices.
 
-This repository contains a v0.1 MVP implementation:
+This repository contains a v0.1 MVP implementation focused on small local tasks:
 
-- line-oriented parser and AST;
-- interpreter with `ro`, `rw`, `admin` access modes;
-- `dry` previews for mutating actions;
-- pipeline transforms: `group`, `sum`/`summarize`, `filter`, `sort`, `limit`, `has`;
-- outputs: `out.md`, `out.json`, `out.table`, `out.text`;
-- mock `b24` and `gm` connectors;
-- structured action logs;
+- arithmetic expressions;
+- variables;
+- file reads;
+- text filters;
+- number extraction and aggregation;
+- tiny pipe chains;
+- optional mock connector experiments.
 - Python compiler/reference runtime.
 
 ## Native Runtime
@@ -35,15 +35,26 @@ build/aiambler examples/script.ai
 The current native MVP has no third-party dependencies and builds into one small
 binary. It supports:
 
-- `use b24 ro|rw|admin`
-- `use gm ro|rw|admin`
-- `dry`
+- arithmetic: `+`, `-`, `*`, `/`, parentheses, numeric variables
 - variables
-- `task? ...` and `mail? ...` mock queries
-- pipes: `group(...)`, `sum(...)`, `has(...)`, `out.md`
-- `b24.task.update ...`
-- `b24.task+` in a pipeline
-- `ro` write blocking and dry-run previews
+- `file.read path`
+- quoted text literals
+- pipes: `grep(...)`, `nums`, `sum`, `count`, `len`, `out`
+- legacy mock pipes: `group(...)`, `sum(fields)`, `has(...)`, `out.md`
+- legacy mock connector examples: `task? ...`, `mail? ...`, `b24.task.update ...`
+
+Small scripts:
+
+```aiambler
+a = 12 * 7 + 3
+b = (a - 7) / 4
+b |> out
+```
+
+```aiambler
+text = file.read examples/numbers.txt
+text |> grep(price) |> nums |> sum |> out
+```
 
 Native smoke tests:
 
@@ -76,15 +87,13 @@ python -m aiambler examples/script.ai
 ## Examples
 
 ```aiambler
-use b24 ro
-t = task? resp:15 status:open
-t |> group(project) |> sum(title,deadline,status,risk) |> out.md
+a = 1200 / 3 + 17
+a |> out
 ```
 
 ```aiambler
-use b24 rw
-dry
-b24.task.update id:123 stage:3199
+text = file.read data.txt
+text |> grep(total) |> nums |> sum |> out
 ```
 
 ## CLI

@@ -5,6 +5,30 @@ BIN="${1:-build/aiambler}"
 TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "$TMP_DIR"' EXIT
 
+cat > "$TMP_DIR/math.ai" <<'AI'
+a = 12 * 7 + 3
+b = (a - 7) / 4
+b |> out
+AI
+
+"$BIN" "$TMP_DIR/math.ai" > "$TMP_DIR/math.out"
+grep -q "^20$" "$TMP_DIR/math.out"
+
+cat > "$TMP_DIR/input.txt" <<'TXT'
+price: 120
+note: skip me 999
+price: 35.5
+price: 4.5
+TXT
+
+cat > "$TMP_DIR/text.ai" <<AI
+text = file.read "$TMP_DIR/input.txt"
+text |> grep(price) |> nums |> sum |> out
+AI
+
+"$BIN" "$TMP_DIR/text.ai" > "$TMP_DIR/text.out"
+grep -q "^160$" "$TMP_DIR/text.out"
+
 cat > "$TMP_DIR/report.ai" <<'AI'
 use b24 ro
 t = task? resp:15 status:open
@@ -35,4 +59,3 @@ if "$BIN" "$TMP_DIR/denied.ai" > "$TMP_DIR/denied.out" 2> "$TMP_DIR/denied.err";
     exit 1
 fi
 grep -q "ERR_ACCESS_DENIED" "$TMP_DIR/denied.err"
-
