@@ -141,6 +141,9 @@ Benchmark package:
 - Maintain five real agent tasks: logs, finance CSV, extraction, replace,
   composite pipeline.
 - Report approximate generated-code tokens with `chars / 4`.
+- Optionally report exact tokenizer counts via `tiktoken` when installed.
+- Optionally ask Ollama to generate Aiambler/Python/awk and compare model-side
+  prompt/output token counts.
 - Report runtime latency for Aiambler, Python, and awk.
 - Keep results in README after stable runs.
 

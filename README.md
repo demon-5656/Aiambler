@@ -154,6 +154,35 @@ replace           15     24      19  1.23  8.69   1.16        1.60
 composite         12     42      31  1.05 12.42   1.27        3.50
 ```
 
+Token-only benchmark:
+
+```bash
+python3 benchmarks/token_count.py
+# optional exact tokenizer when installed:
+python3 benchmarks/token_count.py --tiktoken
+```
+
+Ollama generation test:
+
+```bash
+ollama serve
+python3 benchmarks/ollama_eval.py --model qwen2.5-coder:14b --task logs --targets ai --run-ai
+```
+
+The Ollama test measures model-side prompt/output token counts reported by
+Ollama and can optionally execute generated Aiambler to validate it.
+
+Known local smoke result:
+
+```text
+model=qwen2.5-coder:14b
+logs ai prompt_tok=138 out_tok=20 chars=49 run:0:101307
+```
+
+Small models can fail the format-following test. For example,
+`deepseek-coder:1.3b` tended to produce Python prose instead of Aiambler compact
+code, which is useful as a negative benchmark for prompt robustness.
+
 ## Python Reference
 
 Use a virtual environment only if you need the Python prototype:
