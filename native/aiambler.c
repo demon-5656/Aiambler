@@ -102,6 +102,34 @@ typedef enum {
     PLAN_SCAN_AVG
 } PlanKind;
 
+typedef enum {
+    TOK_UNKNOWN = 0,
+    TOK_OUT,
+    TOK_GREP,
+    TOK_NUMS,
+    TOK_COUNT,
+    TOK_SUM,
+    TOK_AVG,
+    TOK_PICK,
+    TOK_REPLACE
+} TokenKind;
+
+typedef struct {
+    const char *text;
+    TokenKind kind;
+} OperatorToken;
+
+static const OperatorToken COMPACT_OPERATORS[] = {
+    {"~>", TOK_REPLACE},
+    {"##", TOK_COUNT},
+    {"+/", TOK_AVG},
+    {"?", TOK_GREP},
+    {"@", TOK_PICK},
+    {"#", TOK_NUMS},
+    {"+", TOK_SUM},
+    {"!", TOK_OUT},
+};
+
 static const char *op_name(OpCode code) {
     switch (code) {
         case OP_LOAD: return "LOAD";
@@ -394,10 +422,16 @@ static int op_add(Program *program, OpCode code, const char *arg) {
     return 1;
 }
 
-static int is_compact_step(const char *step) {
-    return step[0] == '?' || step[0] == '@' || strncmp(step, "~>", 2) == 0 ||
-           strcmp(step, "#") == 0 || strcmp(step, "##") == 0 ||
-           strcmp(step, "+") == 0 || strcmp(step, "+/") == 0 || strcmp(step, "!") == 0;
+static TokenKind scan_compact_operator(const char *step, const char **arg) {
+    for (size_t i = 0; i < sizeof(COMPACT_OPERATORS) / sizeof(COMPACT_OPERATORS[0]); i++) {
+        size_t len = strlen(COMPACT_OPERATORS[i].text);
+        if (strncmp(step, COMPACT_OPERATORS[i].text, len) == 0) {
+            *arg = step + len;
+            return COMPACT_OPERATORS[i].kind;
+        }
+    }
+    *arg = step;
+    return TOK_UNKNOWN;
 }
 
 static int parse_compact_program(char *parts[], int part_count, Program *program) {
@@ -419,41 +453,42 @@ static int parse_compact_program(char *parts[], int part_count, Program *program
     }
     for (int i = 1; i < part_count; i++) {
         char *step = trim(parts[i]);
-        if (!is_compact_step(step)) {
-            return 0;
-        }
-        if (step[0] == '?') {
-            if (!op_add(program, OP_GREP, trim(step + 1))) {
+        const char *arg = NULL;
+        TokenKind token = scan_compact_operator(step, &arg);
+        if (token == TOK_GREP) {
+            if (!op_add(program, OP_GREP, trim((char *)arg))) {
                 return 0;
             }
-        } else if (step[0] == '@') {
-            if (!op_add(program, OP_PICK, trim(step + 1))) {
+        } else if (token == TOK_PICK) {
+            if (!op_add(program, OP_PICK, trim((char *)arg))) {
                 return 0;
             }
-        } else if (strncmp(step, "~>", 2) == 0) {
-            if (!op_add(program, OP_REPLACE, trim(step + 2))) {
+        } else if (token == TOK_REPLACE) {
+            if (!op_add(program, OP_REPLACE, trim((char *)arg))) {
                 return 0;
             }
-        } else if (strcmp(step, "#") == 0) {
+        } else if (token == TOK_NUMS && *trim((char *)arg) == '\0') {
             if (!op_add(program, OP_NUMS, "")) {
                 return 0;
             }
-        } else if (strcmp(step, "##") == 0) {
+        } else if (token == TOK_COUNT && *trim((char *)arg) == '\0') {
             if (!op_add(program, OP_COUNT, "")) {
                 return 0;
             }
-        } else if (strcmp(step, "+") == 0) {
+        } else if (token == TOK_SUM && *trim((char *)arg) == '\0') {
             if (!op_add(program, OP_SUM, "")) {
                 return 0;
             }
-        } else if (strcmp(step, "+/") == 0) {
+        } else if (token == TOK_AVG && *trim((char *)arg) == '\0') {
             if (!op_add(program, OP_AVG, "")) {
                 return 0;
             }
-        } else if (strcmp(step, "!") == 0) {
+        } else if (token == TOK_OUT && *trim((char *)arg) == '\0') {
             if (!op_add(program, OP_OUT, "")) {
                 return 0;
             }
+        } else {
+            return 0;
         }
     }
     return 1;

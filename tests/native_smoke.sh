@@ -57,6 +57,17 @@ AI
 "$BIN" --dump-plan "$TMP_DIR/compact_finance.ai" > "$TMP_DIR/avg.out" 2> "$TMP_DIR/avg.err"
 grep -q "plan line 1: SCAN_AVG_CONTAINS" "$TMP_DIR/avg.err"
 
+cat > "$TMP_DIR/longest.ai" <<AI
+<$TMP_DIR/input.txt|##|!
+<$TMP_DIR/input.txt|?price|#|+/|!
+<$TMP_DIR/input.txt|~>price=cost|!
+AI
+
+"$BIN" --dump-ir "$TMP_DIR/longest.ai" > "$TMP_DIR/longest.out" 2> "$TMP_DIR/longest.err"
+grep -q "READ($TMP_DIR/input.txt) COUNT OUT" "$TMP_DIR/longest.err"
+grep -q "GREP(price) NUMS AVG OUT" "$TMP_DIR/longest.err"
+grep -q "REPLACE(price=cost) OUT" "$TMP_DIR/longest.err"
+
 cat > "$TMP_DIR/compact_out.ai" <<'AI'
 a = 12 * 7 + 3
 a!

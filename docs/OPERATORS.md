@@ -124,3 +124,6 @@ Current implementation note: compact pipe chains already normalize into a small
 a compatibility layer.
 
 Use `--dump-ir --dump-plan` to inspect normalization and selected plan.
+The native compact parser uses a longest-match operator scanner for implemented
+operators, so `##` is parsed as count before `#`, and `+/` is parsed as average
+before `+`.
