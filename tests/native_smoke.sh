@@ -50,6 +50,13 @@ grep -q "GREP(price) NUMS SUM OUT" "$TMP_DIR/dump.err"
 grep -q "plan line 1: SCAN_SUM_CONTAINS" "$TMP_DIR/dump.err"
 grep -q "^160$" "$TMP_DIR/dump.out"
 
+cat > "$TMP_DIR/compact_finance.ai" <<AI
+<$TMP_DIR/input.txt|?price|#|+/|!
+AI
+
+"$BIN" --dump-plan "$TMP_DIR/compact_finance.ai" > "$TMP_DIR/avg.out" 2> "$TMP_DIR/avg.err"
+grep -q "plan line 1: SCAN_AVG_CONTAINS" "$TMP_DIR/avg.err"
+
 cat > "$TMP_DIR/compact_out.ai" <<'AI'
 a = 12 * 7 + 3
 a!

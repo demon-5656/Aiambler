@@ -96,6 +96,12 @@ typedef struct {
     int count;
 } Program;
 
+typedef enum {
+    PLAN_INTERPRET = 0,
+    PLAN_SCAN_SUM,
+    PLAN_SCAN_AVG
+} PlanKind;
+
 static const char *op_name(OpCode code) {
     switch (code) {
         case OP_LOAD: return "LOAD";
@@ -464,36 +470,58 @@ static void dump_program(const Program *program, int line) {
     fprintf(stderr, "\n");
 }
 
-static const char *plan_program(const Program *program) {
+static const char *plan_name(PlanKind plan) {
+    switch (plan) {
+        case PLAN_SCAN_SUM: return "SCAN_SUM_CONTAINS";
+        case PLAN_SCAN_AVG: return "SCAN_AVG_CONTAINS";
+        case PLAN_INTERPRET: return "INTERPRET";
+    }
+    return "INTERPRET";
+}
+
+static PlanKind detect_plan(const Program *program) {
     int start = 0;
     if (program->count < 2) {
-        return "INTERPRET";
+        return PLAN_INTERPRET;
     }
-    if (program->ops[0].code == OP_READ || program->ops[0].code == OP_LOAD) {
+    if (program->ops[0].code == OP_READ) {
         start = 1;
     } else {
-        return "INTERPRET";
+        return PLAN_INTERPRET;
     }
     if (program->count >= start + 4 &&
         program->ops[start].code == OP_GREP &&
         program->ops[start + 1].code == OP_NUMS &&
         program->ops[start + 2].code == OP_SUM &&
         program->ops[start + 3].code == OP_OUT) {
-        return "SCAN_SUM_CONTAINS";
+        return PLAN_SCAN_SUM;
+    }
+    if (program->count >= start + 5 &&
+        program->ops[start].code == OP_GREP &&
+        program->ops[start + 1].code == OP_PICK &&
+        program->ops[start + 2].code == OP_NUMS &&
+        program->ops[start + 3].code == OP_SUM &&
+        program->ops[start + 4].code == OP_OUT) {
+        return PLAN_SCAN_SUM;
     }
     if (program->count >= start + 3 &&
         program->ops[start].code == OP_NUMS &&
         program->ops[start + 1].code == OP_SUM &&
         program->ops[start + 2].code == OP_OUT) {
-        return "SCAN_SUM_NUMS";
+        return PLAN_SCAN_SUM;
     }
-    if (program->count >= start + 3 &&
+    if (program->count >= start + 4 &&
         program->ops[start].code == OP_GREP &&
         program->ops[start + 1].code == OP_NUMS &&
-        program->ops[start + 2].code == OP_AVG) {
-        return "SCAN_AVG_CONTAINS";
+        program->ops[start + 2].code == OP_AVG &&
+        program->ops[start + 3].code == OP_OUT) {
+        return PLAN_SCAN_AVG;
     }
-    return "INTERPRET";
+    return PLAN_INTERPRET;
+}
+
+static const char *plan_program(const Program *program) {
+    return plan_name(detect_plan(program));
 }
 
 typedef struct {
@@ -1013,7 +1041,39 @@ static int materialize_file(Value *value, int line) {
     return 1;
 }
 
+static int execute_planned_program(Program *program, PlanKind plan, int line, Value *out) {
+    if (plan == PLAN_INTERPRET || program->ops[0].code != OP_READ) {
+        return 0;
+    }
+    Value value;
+    lazy_path(program->ops[0].arg, &value);
+    for (int i = 1; i < program->count; i++) {
+        Op *op = &program->ops[i];
+        if (op->code == OP_GREP) {
+            value.scan_filter = 1;
+            snprintf(value.scan_needle, sizeof(value.scan_needle), "%s", op->arg);
+        } else if (op->code == OP_PICK) {
+            value.scan_pick_col = atoi(op->arg);
+        }
+    }
+    if (!scan_file_reduce(&value, line, plan == PLAN_SCAN_AVG)) {
+        return 0;
+    }
+    if (program->ops[program->count - 1].code == OP_OUT) {
+        if (!apply_out_md(&value)) {
+            return 0;
+        }
+    }
+    *out = value;
+    return 1;
+}
+
 static int execute_program(Runtime *rt, Program *program, int line, Value *out) {
+    PlanKind plan = detect_plan(program);
+    if (plan != PLAN_INTERPRET && execute_planned_program(program, plan, line, out)) {
+        (void)rt;
+        return 1;
+    }
     Value value;
     value_clear(&value);
     for (int i = 0; i < program->count; i++) {

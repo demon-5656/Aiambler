@@ -75,6 +75,9 @@ Inspect compact IR and execution plan:
 build/aiambler --dump-ir --dump-plan examples/compact.ai
 ```
 
+Direct compact read pipelines such as `<file|?x|#|+|!` execute through the
+planned scan/reduce kernel.
+
 Native smoke tests:
 
 ```bash

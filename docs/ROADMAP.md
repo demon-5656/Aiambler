@@ -109,6 +109,11 @@ as one file scan instead of materializing the whole file and intermediate arrays
 This also avoids the fixed text buffer limit used by the verbose compatibility
 path.
 
+Current planner status: direct compact `OP_READ` pipelines matching scan/reduce
+patterns execute through a specialized planned kernel instead of stepping through
+each `Op`. `OP_LOAD` pipelines still use the interpreter path because variables
+may hold non-file values.
+
 ## Phase 4: Parallel Runtime
 
 - Keep `--jobs N`.
