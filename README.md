@@ -2,9 +2,9 @@
 
 Aiambler is a compact executable intent language for AI agents.
 
-The primary runtime is a small native interpreter written in C. The Python code
-in this repository is a reference prototype and test harness, not the intended
-runtime for edge devices.
+The runtime is a small native interpreter written in C. The repository no longer
+ships a Python implementation of the language; Python is used only for benchmark
+and evaluation helper scripts.
 
 This repository contains a v0.1 MVP implementation focused on small local tasks:
 
@@ -15,7 +15,6 @@ This repository contains a v0.1 MVP implementation focused on small local tasks:
 - number extraction and aggregation;
 - tiny pipe chains;
 - optional mock connector experiments.
-- Python compiler/reference runtime.
 
 ## Native Runtime
 
@@ -81,15 +80,14 @@ Direct compact read pipelines such as `<file|?x|#|+|!`,
 `<file|?x|#|+/|!`, and `<file|?x|@2|#|+|!` execute through the planned
 scan/reduce kernel. Other compact file pipelines keep the lazy file source when
 possible and materialize text only for operations such as `##` and `~>`.
+For larger direct file scans, `--jobs N` splits the file into line-safe ranges
+and reduces local numeric results in parallel.
 
 Inspect compact IR and execution plan:
 
 ```bash
 build/aiambler --dump-ir --dump-plan examples/compact.ai
 ```
-
-Direct compact read pipelines such as `<file|?x|#|+|!` execute through the
-planned scan/reduce kernel.
 
 Native smoke tests:
 
@@ -196,28 +194,6 @@ Small models can fail the format-following test. For example,
 `deepseek-coder:1.3b` tended to produce Python prose instead of Aiambler compact
 code, which is useful as a negative benchmark for prompt robustness.
 
-## Python Reference
-
-Use a virtual environment only if you need the Python prototype:
-
-```bash
-cd /home/pc243/GIT/Aiambler
-python -m venv .venv
-.venv/bin/python -m pip install -e .
-```
-
-After installation, run `.ai` files with the console command:
-
-```bash
-.venv/bin/aiambler examples/script.ai
-```
-
-You can also run without installing the console script while developing:
-
-```bash
-python -m aiambler examples/script.ai
-```
-
 Remove generated local artifacts:
 
 ```bash
@@ -239,8 +215,7 @@ text |> grep(total) |> nums |> sum |> out
 ## CLI
 
 ```bash
-aiambler script.ai
-python -m aiambler script.ai
-aiambler --compile-python script.ai
-aiambler --logs script.ai
+build/aiambler script.ai
+build/aiambler --dump-ir --dump-plan script.ai
+build/aiambler --jobs 4 script.ai
 ```

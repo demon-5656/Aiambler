@@ -109,6 +109,21 @@ AI
 "$BIN" "$TMP_DIR/large_compact.ai" > "$TMP_DIR/large_compact.out"
 grep -q "^100$" "$TMP_DIR/large_compact.out"
 
+: > "$TMP_DIR/parallel.txt"
+i=0
+while [ "$i" -lt 2000 ]; do
+    printf 'note: %0100d\n' "$i" >> "$TMP_DIR/parallel.txt"
+    printf 'price: 1\n' >> "$TMP_DIR/parallel.txt"
+    i=$((i + 1))
+done
+
+cat > "$TMP_DIR/parallel_compact.ai" <<AI
+<$TMP_DIR/parallel.txt|?price|#|+|!
+AI
+
+"$BIN" --jobs 4 "$TMP_DIR/parallel_compact.ai" > "$TMP_DIR/parallel_compact.out"
+grep -q "^2000$" "$TMP_DIR/parallel_compact.out"
+
 cat > "$TMP_DIR/fp.ai" <<'AI'
 fp(1000) |> out
 AI

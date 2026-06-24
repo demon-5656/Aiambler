@@ -2,7 +2,8 @@
 
 Aiambler should become a compact runtime for AI-generated commands, not a
 human-first scripting language. The native runtime is the source of truth.
-Python stays as a reference implementation and test harness.
+Python implementation code has been removed; Python remains only in benchmark
+and evaluation helper scripts.
 
 ## Principles
 
@@ -121,6 +122,12 @@ the interpreter path because variables may hold non-file values.
 - Add operation metadata: `MAP`, `REDUCE`, `SOURCE`, `SINK`, `ORDERED`.
 - Build a simple execution plan from IR.
 - Parallelize map/reduce operations automatically when data size warrants it.
+
+Current status: `--jobs N` is used by heavy `fp()`/`mm()` kernels and by direct
+planned file scan/reduce pipelines once input is large enough. The scan backend
+splits the file into byte ranges, starts each worker at a line boundary, and
+combines local numeric totals/counts for sum and average. General operation
+metadata is still pending.
 
 ## Phase 5: Core Modules
 

@@ -15,6 +15,8 @@
 #define MAX_VAR_NAME 32
 #define MAX_PIPE 16
 #define MAX_OUTPUT 8192
+#define MAX_SCAN_JOBS 64
+#define PARALLEL_SCAN_MIN_BYTES 65536L
 
 typedef enum {
     VALUE_NONE = 0,
@@ -1044,6 +1046,61 @@ static void accumulate_numbers(const char *src, double *total, int *count) {
     }
 }
 
+typedef struct {
+    char file_path[MAX_LINE];
+    char needle[MAX_FIELD_VALUE];
+    long start;
+    long end;
+    int scan_filter;
+    int scan_pick_col;
+    double total;
+    int count;
+    int ok;
+} ScanJob;
+
+static void *scan_range_worker(void *arg) {
+    ScanJob *job = (ScanJob *)arg;
+    FILE *file = fopen(job->file_path, "r");
+    if (file == NULL) {
+        job->ok = 0;
+        return NULL;
+    }
+    if (fseek(file, job->start, SEEK_SET) != 0) {
+        fclose(file);
+        job->ok = 0;
+        return NULL;
+    }
+    char buf[MAX_LINE];
+    if (job->start > 0) {
+        if (fseek(file, job->start - 1, SEEK_SET) != 0) {
+            fclose(file);
+            job->ok = 0;
+            return NULL;
+        }
+        int prev = fgetc(file);
+        if (prev != '\n') {
+            (void)fgets(buf, sizeof(buf), file);
+        }
+    }
+    while (1) {
+        long pos = ftell(file);
+        if (pos < 0 || pos >= job->end) {
+            break;
+        }
+        if (fgets(buf, sizeof(buf), file) == NULL) {
+            break;
+        }
+        if (job->scan_filter && strstr(buf, job->needle) == NULL) {
+            continue;
+        }
+        char *src = (char *)pick_csv_field(buf, job->scan_pick_col);
+        accumulate_numbers(src, &job->total, &job->count);
+    }
+    fclose(file);
+    job->ok = 1;
+    return NULL;
+}
+
 static int scan_file_reduce(Value *value, int line, int average) {
     FILE *file = fopen(value->file_path, "r");
     if (file == NULL) {
@@ -1065,6 +1122,88 @@ static int scan_file_reduce(Value *value, int line, int average) {
     return 1;
 }
 
+static int file_size_bytes(const char *path, long *size) {
+    FILE *file = fopen(path, "r");
+    if (file == NULL) {
+        return 0;
+    }
+    if (fseek(file, 0, SEEK_END) != 0) {
+        fclose(file);
+        return 0;
+    }
+    long end = ftell(file);
+    fclose(file);
+    if (end < 0) {
+        return 0;
+    }
+    *size = end;
+    return 1;
+}
+
+static int scan_file_reduce_auto(Value *value, int line, int average, int jobs) {
+    long size = 0;
+    if (jobs <= 1 || !file_size_bytes(value->file_path, &size) || size < PARALLEL_SCAN_MIN_BYTES) {
+        return scan_file_reduce(value, line, average);
+    }
+    if (jobs > MAX_SCAN_JOBS) {
+        jobs = MAX_SCAN_JOBS;
+    }
+    if ((long)jobs > size) {
+        jobs = (int)size;
+    }
+    ScanJob *work = (ScanJob *)calloc((size_t)jobs, sizeof(ScanJob));
+    pthread_t *threads = (pthread_t *)calloc((size_t)jobs, sizeof(pthread_t));
+    if (work == NULL || threads == NULL) {
+        free(work);
+        free(threads);
+        fprintf(stderr, "ERR_RUNTIME\nline: %d\nreason: allocation failed\n", line);
+        return 0;
+    }
+
+    long chunk = size / jobs;
+    long rem = size % jobs;
+    long cursor = 0;
+    for (int j = 0; j < jobs; j++) {
+        long len = chunk + (j < rem ? 1 : 0);
+        snprintf(work[j].file_path, sizeof(work[j].file_path), "%s", value->file_path);
+        snprintf(work[j].needle, sizeof(work[j].needle), "%s", value->scan_needle);
+        work[j].start = cursor;
+        work[j].end = cursor + len;
+        work[j].scan_filter = value->scan_filter;
+        work[j].scan_pick_col = value->scan_pick_col;
+        cursor += len;
+        if (pthread_create(&threads[j], NULL, scan_range_worker, &work[j]) != 0) {
+            for (int k = 0; k < j; k++) {
+                pthread_join(threads[k], NULL);
+            }
+            free(work);
+            free(threads);
+            fprintf(stderr, "ERR_RUNTIME\nline: %d\nreason: pthread_create failed\n", line);
+            return 0;
+        }
+    }
+
+    double total = 0.0;
+    int count = 0;
+    int ok = 1;
+    for (int j = 0; j < jobs; j++) {
+        pthread_join(threads[j], NULL);
+        if (!work[j].ok) {
+            ok = 0;
+        }
+        total += work[j].total;
+        count += work[j].count;
+    }
+    free(work);
+    free(threads);
+    if (!ok) {
+        fprintf(stderr, "ERR_FILE\nline: %d\nreason: cannot read %s\n", line, value->file_path);
+        return 0;
+    }
+    value_set_num(value, average && count > 0 ? total / (double)count : total);
+    return 1;
+}
+
 static int materialize_file(Value *value, int line) {
     char expr[MAX_LINE + 16];
     Value loaded;
@@ -1076,7 +1215,7 @@ static int materialize_file(Value *value, int line) {
     return 1;
 }
 
-static int execute_planned_program(Program *program, PlanKind plan, int line, Value *out) {
+static int execute_planned_program(Program *program, PlanKind plan, int line, int jobs, Value *out) {
     if (plan == PLAN_INTERPRET || program->ops[0].code != OP_READ) {
         return 0;
     }
@@ -1091,7 +1230,7 @@ static int execute_planned_program(Program *program, PlanKind plan, int line, Va
             value.scan_pick_col = atoi(op->arg);
         }
     }
-    if (!scan_file_reduce(&value, line, plan == PLAN_SCAN_AVG)) {
+    if (!scan_file_reduce_auto(&value, line, plan == PLAN_SCAN_AVG, jobs)) {
         return 0;
     }
     if (program->ops[program->count - 1].code == OP_OUT) {
@@ -1105,8 +1244,7 @@ static int execute_planned_program(Program *program, PlanKind plan, int line, Va
 
 static int execute_program(Runtime *rt, Program *program, int line, Value *out) {
     PlanKind plan = detect_plan(program);
-    if (plan != PLAN_INTERPRET && execute_planned_program(program, plan, line, out)) {
-        (void)rt;
+    if (plan != PLAN_INTERPRET && execute_planned_program(program, plan, line, rt->jobs, out)) {
         return 1;
     }
     Value value;
