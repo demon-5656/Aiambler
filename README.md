@@ -66,6 +66,8 @@ t|?price|#|+|!
 See [docs/OPERATORS.md](docs/OPERATORS.md) for the compact operator table.
 Compact file pipelines use a fused scan path for `?` + `#` + `+` + `!`.
 That path scans the file directly and does not materialize the full text buffer.
+Compact pipe chains are normalized into a small native `Op[]` IR before
+execution.
 
 Native smoke tests:
 

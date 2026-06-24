@@ -69,6 +69,26 @@ typedef struct {
     int var_count;
 } Runtime;
 
+typedef enum {
+    OP_NOP = 0,
+    OP_LOAD,
+    OP_READ,
+    OP_GREP,
+    OP_NUMS,
+    OP_SUM,
+    OP_OUT
+} OpCode;
+
+typedef struct {
+    OpCode code;
+    char arg[MAX_LINE];
+} Op;
+
+typedef struct {
+    Op ops[MAX_PIPE];
+    int count;
+} Program;
+
 static const Row TASKS[] = {
     {{{"id", "101"}, {"title", "Проверить гарантию"}, {"resp", "15"}, {"status", "open"}, {"project", "Проект 1"}, {"deadline", "2026-06-30"}, {"risk", "low"}}, 7},
     {{{"id", "102"}, {"title", "Согласовать отгрузку"}, {"resp", "15"}, {"status", "open"}, {"project", "Проект 2"}, {"deadline", "2026-06-28"}, {"risk", "medium"}}, 7},
@@ -142,6 +162,10 @@ static void print_num(double num) {
 }
 
 static void append_text(char *buf, size_t size, const char *text);
+static int apply_grep(Value *value, const char *needle);
+static int apply_nums(Value *value);
+static int apply_numeric_sum(Value *value);
+static int apply_out_md(Value *value);
 
 static char *unquote(char *text) {
     text = trim(text);
@@ -323,6 +347,63 @@ static int load_var(Runtime *rt, const char *name, Value *out, int line) {
         return 0;
     }
     *out = var->value;
+    return 1;
+}
+
+static int op_add(Program *program, OpCode code, const char *arg) {
+    if (program->count >= MAX_PIPE) {
+        return 0;
+    }
+    program->ops[program->count].code = code;
+    snprintf(program->ops[program->count].arg, sizeof(program->ops[program->count].arg), "%s", arg == NULL ? "" : arg);
+    program->count++;
+    return 1;
+}
+
+static int is_compact_step(const char *step) {
+    return step[0] == '?' || strcmp(step, "#") == 0 || strcmp(step, "+") == 0 || strcmp(step, "!") == 0;
+}
+
+static int parse_compact_program(char *parts[], int part_count, Program *program) {
+    program->count = 0;
+    if (part_count < 1) {
+        return 0;
+    }
+    if (part_count == 1 && parts[0][0] != '<') {
+        return 0;
+    }
+    if (parts[0][0] == '<') {
+        if (!op_add(program, OP_READ, trim(parts[0] + 1))) {
+            return 0;
+        }
+    } else {
+        if (!op_add(program, OP_LOAD, parts[0])) {
+            return 0;
+        }
+    }
+    for (int i = 1; i < part_count; i++) {
+        char *step = trim(parts[i]);
+        if (!is_compact_step(step)) {
+            return 0;
+        }
+        if (step[0] == '?') {
+            if (!op_add(program, OP_GREP, trim(step + 1))) {
+                return 0;
+            }
+        } else if (strcmp(step, "#") == 0) {
+            if (!op_add(program, OP_NUMS, "")) {
+                return 0;
+            }
+        } else if (strcmp(step, "+") == 0) {
+            if (!op_add(program, OP_SUM, "")) {
+                return 0;
+            }
+        } else if (strcmp(step, "!") == 0) {
+            if (!op_add(program, OP_OUT, "")) {
+                return 0;
+            }
+        }
+    }
     return 1;
 }
 
@@ -816,6 +897,58 @@ static int materialize_file(Value *value, int line) {
     return 1;
 }
 
+static int execute_program(Runtime *rt, Program *program, int line, Value *out) {
+    Value value;
+    value_clear(&value);
+    for (int i = 0; i < program->count; i++) {
+        Op *op = &program->ops[i];
+        switch (op->code) {
+            case OP_LOAD:
+                if (!load_var(rt, op->arg, &value, line)) {
+                    return 0;
+                }
+                break;
+            case OP_READ:
+                lazy_path(op->arg, &value);
+                break;
+            case OP_GREP:
+                if (value.type == VALUE_FILE) {
+                    value.scan_filter = 1;
+                    snprintf(value.scan_needle, sizeof(value.scan_needle), "%s", op->arg);
+                } else if (!apply_grep(&value, op->arg)) {
+                    return 0;
+                }
+                break;
+            case OP_NUMS:
+                if (value.type == VALUE_FILE) {
+                    value.scan_nums = 1;
+                } else if (!apply_nums(&value)) {
+                    return 0;
+                }
+                break;
+            case OP_SUM:
+                if (value.type == VALUE_FILE) {
+                    if (!scan_file_sum(&value, line)) {
+                        return 0;
+                    }
+                } else if (!apply_numeric_sum(&value)) {
+                    return 0;
+                }
+                break;
+            case OP_OUT:
+                if (!apply_out_md(&value)) {
+                    return 0;
+                }
+                break;
+            case OP_NOP:
+                break;
+        }
+    }
+    *out = value;
+    (void)rt;
+    return 1;
+}
+
 static int apply_grep(Value *value, const char *needle) {
     if (value->type == VALUE_FILE) {
         value->scan_filter = 1;
@@ -1227,6 +1360,10 @@ static int eval_expr(Runtime *rt, char *expr, int line, Value *out) {
     if (part_count == 0) {
         value_clear(out);
         return 1;
+    }
+    Program program;
+    if (parse_compact_program(parts, part_count, &program)) {
+        return execute_program(rt, &program, line, out);
     }
     if (!eval_atom(rt, parts[0], line, out)) {
         return 0;

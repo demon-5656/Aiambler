@@ -75,6 +75,10 @@ typedef enum {
 
 Pipeline source code should compile into an `Op[]` program before execution.
 
+Current status: compact pipe chains now compile into a minimal `Program` of
+`Op` items before execution. Verbose syntax still uses the compatibility
+evaluator.
+
 ## Phase 3: Fusion
 
 Fuse common pipelines:

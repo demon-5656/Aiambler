@@ -37,6 +37,13 @@ AI
 "$BIN" "$TMP_DIR/compact.ai" > "$TMP_DIR/compact.out"
 grep -q "^160$" "$TMP_DIR/compact.out"
 
+cat > "$TMP_DIR/compact_direct.ai" <<AI
+<$TMP_DIR/input.txt|?price|#|+|!
+AI
+
+"$BIN" "$TMP_DIR/compact_direct.ai" > "$TMP_DIR/compact_direct.out"
+grep -q "^160$" "$TMP_DIR/compact_direct.out"
+
 cat > "$TMP_DIR/compact_out.ai" <<'AI'
 a = 12 * 7 + 3
 a!
