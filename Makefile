@@ -1,6 +1,6 @@
 CC ?= cc
 CFLAGS ?= -std=c99 -Wall -Wextra -pedantic -Os
-LDFLAGS ?= -s
+LDFLAGS ?= -s -pthread
 
 BUILD_DIR := build
 NATIVE_BIN := $(BUILD_DIR)/aiambler

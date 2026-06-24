@@ -86,6 +86,29 @@ awk text                1.096    1.41
 This measures full process startup plus script execution. For tiny tasks that is
 the cost users feel most.
 
+Heavy floating-point and matrix benchmarks:
+
+```bash
+python3 benchmarks/run.py --mode heavy --runs 3 --jobs 1,2,4,8,16 --fp-iters 3000000 --matrix-size 256
+```
+
+Current result on a 16-thread machine:
+
+```text
+case                median ms    vs ai-j1
+aiambler-j1 fp        106.227       1.00
+aiambler-j16 fp        10.029       0.09
+python fp            2087.363      19.65
+aiambler-j1 mm          8.880       1.00
+aiambler-j16 mm         2.849       0.32
+python mm            1609.822     181.29
+numpy mm               56.140       6.32
+```
+
+The heavy benchmark also measures full process startup. NumPy includes Python
+startup and import overhead, so this is an end-to-end command latency comparison,
+not a BLAS-only microbenchmark.
+
 ## Python Reference
 
 Use a virtual environment only if you need the Python prototype:

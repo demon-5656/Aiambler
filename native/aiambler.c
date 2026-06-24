@@ -1,4 +1,5 @@
 #include <ctype.h>
+#include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -58,6 +59,7 @@ typedef struct {
     int b24_mode;
     int gm_mode;
     int dry;
+    int jobs;
     Variable vars[MAX_VARS];
     int var_count;
 } Runtime;
@@ -443,6 +445,193 @@ static int eval_math(Runtime *rt, const char *expr, int line, Value *out) {
     return 1;
 }
 
+typedef struct {
+    unsigned long long start;
+    unsigned long long end;
+    double result;
+} FpJob;
+
+static double fp_kernel(unsigned long long i) {
+    double x = (double)(i % 1009) * 0.0009910802775024777;
+    double y = (double)((i * 17ULL + 13ULL) % 997) * 0.0010030090270812437;
+    for (int k = 0; k < 8; k++) {
+        x = x * 1.000000119 + y * 0.999999937 + 0.000001;
+        y = y * 0.999999911 + x * 0.000000173 + 0.000002;
+    }
+    return x * y + x / (y + 1.0);
+}
+
+static void *fp_worker(void *arg) {
+    FpJob *job = (FpJob *)arg;
+    double acc = 0.0;
+    for (unsigned long long i = job->start; i < job->end; i++) {
+        acc += fp_kernel(i);
+    }
+    job->result = acc;
+    return NULL;
+}
+
+static int run_fp(Runtime *rt, char *expr, int line, Value *out) {
+    char *arg = expr + 3;
+    char *end = strrchr(arg, ')');
+    if (end != NULL) {
+        *end = '\0';
+    }
+    unsigned long long n = strtoull(trim(arg), NULL, 10);
+    if (n == 0) {
+        fprintf(stderr, "ERR_PARSE\nline: %d\nreason: fp requires positive iteration count\n", line);
+        return 0;
+    }
+    int jobs = rt->jobs < 1 ? 1 : rt->jobs;
+    if ((unsigned long long)jobs > n) {
+        jobs = (int)n;
+    }
+    FpJob *work = (FpJob *)calloc((size_t)jobs, sizeof(FpJob));
+    pthread_t *threads = (pthread_t *)calloc((size_t)jobs, sizeof(pthread_t));
+    if (work == NULL || threads == NULL) {
+        free(work);
+        free(threads);
+        fprintf(stderr, "ERR_RUNTIME\nline: %d\nreason: allocation failed\n", line);
+        return 0;
+    }
+    unsigned long long chunk = n / (unsigned long long)jobs;
+    unsigned long long rem = n % (unsigned long long)jobs;
+    unsigned long long cursor = 0;
+    for (int j = 0; j < jobs; j++) {
+        unsigned long long len = chunk + ((unsigned long long)j < rem ? 1ULL : 0ULL);
+        work[j].start = cursor;
+        work[j].end = cursor + len;
+        cursor += len;
+        if (jobs == 1) {
+            fp_worker(&work[j]);
+        } else if (pthread_create(&threads[j], NULL, fp_worker, &work[j]) != 0) {
+            free(work);
+            free(threads);
+            fprintf(stderr, "ERR_RUNTIME\nline: %d\nreason: pthread_create failed\n", line);
+            return 0;
+        }
+    }
+    double total = 0.0;
+    for (int j = 0; j < jobs; j++) {
+        if (jobs > 1) {
+            pthread_join(threads[j], NULL);
+        }
+        total += work[j].result;
+    }
+    free(work);
+    free(threads);
+    value_set_num(out, total);
+    return 1;
+}
+
+typedef struct {
+    const double *a;
+    const double *b;
+    double *c;
+    int n;
+    int row_start;
+    int row_end;
+} MatJob;
+
+static void *matmul_worker(void *arg) {
+    MatJob *job = (MatJob *)arg;
+    int n = job->n;
+    for (int i = job->row_start; i < job->row_end; i++) {
+        for (int k = 0; k < n; k++) {
+            double aik = job->a[(size_t)i * (size_t)n + (size_t)k];
+            for (int j = 0; j < n; j++) {
+                job->c[(size_t)i * (size_t)n + (size_t)j] += aik * job->b[(size_t)k * (size_t)n + (size_t)j];
+            }
+        }
+    }
+    return NULL;
+}
+
+static int run_matmul(Runtime *rt, char *expr, int line, Value *out) {
+    char *arg = expr + 3;
+    char *end = strrchr(arg, ')');
+    if (end != NULL) {
+        *end = '\0';
+    }
+    int n = atoi(trim(arg));
+    if (n <= 0 || n > 2048) {
+        fprintf(stderr, "ERR_PARSE\nline: %d\nreason: mm requires size 1..2048\n", line);
+        return 0;
+    }
+    size_t cells = (size_t)n * (size_t)n;
+    double *a = (double *)malloc(cells * sizeof(double));
+    double *b = (double *)malloc(cells * sizeof(double));
+    double *c = (double *)calloc(cells, sizeof(double));
+    if (a == NULL || b == NULL || c == NULL) {
+        free(a);
+        free(b);
+        free(c);
+        fprintf(stderr, "ERR_RUNTIME\nline: %d\nreason: allocation failed\n", line);
+        return 0;
+    }
+    for (size_t i = 0; i < cells; i++) {
+        a[i] = (double)((i * 13U + 7U) % 101U) * 0.01;
+        b[i] = (double)((i * 17U + 3U) % 97U) * 0.01;
+    }
+
+    int jobs = rt->jobs < 1 ? 1 : rt->jobs;
+    if (jobs > n) {
+        jobs = n;
+    }
+    MatJob *work = (MatJob *)calloc((size_t)jobs, sizeof(MatJob));
+    pthread_t *threads = (pthread_t *)calloc((size_t)jobs, sizeof(pthread_t));
+    if (work == NULL || threads == NULL) {
+        free(a);
+        free(b);
+        free(c);
+        free(work);
+        free(threads);
+        fprintf(stderr, "ERR_RUNTIME\nline: %d\nreason: allocation failed\n", line);
+        return 0;
+    }
+    int rows = n / jobs;
+    int rem = n % jobs;
+    int row = 0;
+    for (int j = 0; j < jobs; j++) {
+        int len = rows + (j < rem ? 1 : 0);
+        work[j].a = a;
+        work[j].b = b;
+        work[j].c = c;
+        work[j].n = n;
+        work[j].row_start = row;
+        work[j].row_end = row + len;
+        row += len;
+        if (jobs == 1) {
+            matmul_worker(&work[j]);
+        } else if (pthread_create(&threads[j], NULL, matmul_worker, &work[j]) != 0) {
+            free(a);
+            free(b);
+            free(c);
+            free(work);
+            free(threads);
+            fprintf(stderr, "ERR_RUNTIME\nline: %d\nreason: pthread_create failed\n", line);
+            return 0;
+        }
+    }
+    for (int j = 0; j < jobs; j++) {
+        if (jobs > 1) {
+            pthread_join(threads[j], NULL);
+        }
+    }
+
+    double checksum = 0.0;
+    for (size_t i = 0; i < cells; i++) {
+        checksum += c[i];
+    }
+    free(a);
+    free(b);
+    free(c);
+    free(work);
+    free(threads);
+    value_set_num(out, checksum);
+    return 1;
+}
+
 static int apply_group(Value *value, const char *field, int line) {
     if (value->type != VALUE_ROWS) {
         fprintf(stderr, "ERR_RUNTIME\nline: %d\nreason: group requires rows\n", line);
@@ -810,6 +999,12 @@ static int eval_atom(Runtime *rt, char *atom, int line, Value *out) {
     if (strncmp(atom, "file.read ", 10) == 0) {
         return run_file_read(atom, line, out);
     }
+    if (strncmp(atom, "fp(", 3) == 0) {
+        return run_fp(rt, atom, line, out);
+    }
+    if (strncmp(atom, "mm(", 3) == 0) {
+        return run_matmul(rt, atom, line, out);
+    }
     if (strncmp(atom, "b24.task.update", 15) == 0) {
         return run_update(rt, atom, line, out);
     }
@@ -980,7 +1175,7 @@ static int run_line(Runtime *rt, char *line, int line_no) {
     return eval_expr(rt, line, line_no, &value);
 }
 
-static int run_file(const char *path) {
+static int run_file(const char *path, int jobs) {
     FILE *file = fopen(path, "r");
     if (file == NULL) {
         perror(path);
@@ -988,6 +1183,7 @@ static int run_file(const char *path) {
     }
     Runtime rt;
     memset(&rt, 0, sizeof(rt));
+    rt.jobs = jobs < 1 ? 1 : jobs;
     char line[MAX_LINE];
     int line_no = 0;
     while (fgets(line, sizeof(line), file) != NULL) {
@@ -1002,9 +1198,25 @@ static int run_file(const char *path) {
 }
 
 int main(int argc, char **argv) {
-    if (argc != 2) {
-        fprintf(stderr, "usage: %s script.ai\n", argv[0]);
+    int jobs = 1;
+    const char *script = NULL;
+    for (int i = 1; i < argc; i++) {
+        if (strcmp(argv[i], "--jobs") == 0 || strcmp(argv[i], "-j") == 0) {
+            if (i + 1 >= argc) {
+                fprintf(stderr, "usage: %s [--jobs N] script.ai\n", argv[0]);
+                return 2;
+            }
+            jobs = atoi(argv[++i]);
+            if (jobs < 1) {
+                jobs = 1;
+            }
+        } else {
+            script = argv[i];
+        }
+    }
+    if (script == NULL) {
+        fprintf(stderr, "usage: %s [--jobs N] script.ai\n", argv[0]);
         return 2;
     }
-    return run_file(argv[1]);
+    return run_file(script, jobs);
 }

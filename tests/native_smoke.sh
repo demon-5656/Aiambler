@@ -29,6 +29,20 @@ AI
 "$BIN" "$TMP_DIR/text.ai" > "$TMP_DIR/text.out"
 grep -q "^160$" "$TMP_DIR/text.out"
 
+cat > "$TMP_DIR/fp.ai" <<'AI'
+fp(1000) |> out
+AI
+
+"$BIN" --jobs 2 "$TMP_DIR/fp.ai" > "$TMP_DIR/fp.out"
+grep -q "5693.43088" "$TMP_DIR/fp.out"
+
+cat > "$TMP_DIR/mm.ai" <<'AI'
+mm(16) |> out
+AI
+
+"$BIN" --jobs 2 "$TMP_DIR/mm.ai" > "$TMP_DIR/mm.out"
+grep -q "982.7511" "$TMP_DIR/mm.out"
+
 cat > "$TMP_DIR/report.ai" <<'AI'
 use b24 ro
 t = task? resp:15 status:open
