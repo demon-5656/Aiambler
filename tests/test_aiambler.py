@@ -1,4 +1,6 @@
 import pytest
+import subprocess
+import sys
 
 from aiambler.compiler import PythonCompiler
 from aiambler.errors import AccessDeniedError, UnknownFieldError
@@ -119,3 +121,24 @@ def test_compiled_python_executes_basic_pipeline():
     exec(code, namespace)
 
     assert "Проект 1:" in namespace["report"]
+
+
+def test_package_module_runs_ai_script_file(tmp_path):
+    script = tmp_path / "script.ai"
+    script.write_text(
+        """
+        use b24 ro
+        t = task? resp:15 status:open
+        t |> group(project) |> out.md
+        """,
+        encoding="utf-8",
+    )
+
+    completed = subprocess.run(
+        [sys.executable, "-m", "aiambler", str(script)],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    assert "Проект 1:" in completed.stdout

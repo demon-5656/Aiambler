@@ -1,0 +1,3 @@
+use b24 ro
+t = task? resp:15 status:open
+t |> group(project) |> sum(title,deadline,status,risk) |> out.md

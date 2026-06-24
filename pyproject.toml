@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "aiambler"
 version = "0.1.0"
 description = "Compact executable intent language for AI agents"
-readme = "aiambler/README.md"
+readme = "README.md"
 requires-python = ">=3.11"
 authors = [{ name = "Aiambler contributors" }]
 dependencies = []
@@ -16,4 +16,3 @@ aiambler = "aiambler.cli:main"
 
 [tool.pytest.ini_options]
 python_files = ["test_*.py", "*_test.py"]
-

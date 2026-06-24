@@ -12,6 +12,28 @@ contains a v0.1 MVP implementation:
 - structured action logs;
 - Python compiler.
 
+## Install
+
+Use a virtual environment:
+
+```bash
+cd /home/pc243/GIT/Aiambler
+python -m venv .venv
+.venv/bin/python -m pip install -e .
+```
+
+After installation, run `.ai` files with the console command:
+
+```bash
+.venv/bin/aiambler examples/script.ai
+```
+
+You can also run without installing the console script while developing:
+
+```bash
+python -m aiambler examples/script.ai
+```
+
 ## Examples
 
 ```aiambler
@@ -28,27 +50,10 @@ b24.task.update id:123 stage:3199
 
 ## CLI
 
-Install the package in editable mode during development:
-
 ```bash
-cd /home/pc243/GIT/Aiambler
-python -m venv .venv
-.venv/bin/python -m pip install -e .
-```
-
-Run an Aiambler script file:
-
-```bash
-.venv/bin/aiambler script.ai
+aiambler script.ai
 python -m aiambler script.ai
-.venv/bin/aiambler --compile-python script.ai
-.venv/bin/aiambler --logs script.ai
+aiambler --compile-python script.ai
+aiambler --logs script.ai
 ```
 
-Example `script.ai`:
-
-```aiambler
-use b24 ro
-t = task? resp:15 status:open
-t |> group(project) |> sum(title,deadline,status,risk) |> out.md
-```
