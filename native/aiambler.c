@@ -105,6 +105,15 @@ typedef enum {
 } PlanKind;
 
 typedef enum {
+    OPF_NONE = 0,
+    OPF_SOURCE = 1 << 0,
+    OPF_MAP = 1 << 1,
+    OPF_REDUCE = 1 << 2,
+    OPF_SINK = 1 << 3,
+    OPF_ORDERED = 1 << 4
+} OpFlag;
+
+typedef enum {
     TOK_UNKNOWN = 0,
     TOK_OUT,
     TOK_GREP,
@@ -516,6 +525,65 @@ static const char *plan_name(PlanKind plan) {
     return "INTERPRET";
 }
 
+static int op_flags(OpCode code) {
+    switch (code) {
+        case OP_READ:
+        case OP_LOAD:
+            return OPF_SOURCE;
+        case OP_GREP:
+        case OP_NUMS:
+        case OP_PICK:
+        case OP_REPLACE:
+            return OPF_MAP | OPF_ORDERED;
+        case OP_SUM:
+        case OP_AVG:
+        case OP_COUNT:
+            return OPF_REDUCE;
+        case OP_OUT:
+            return OPF_SINK | OPF_ORDERED;
+        case OP_NOP:
+            return OPF_NONE;
+    }
+    return OPF_NONE;
+}
+
+static void print_flags(FILE *out, int flags) {
+    int first = 1;
+    if (flags == OPF_NONE) {
+        fprintf(out, "NONE");
+        return;
+    }
+    if (flags & OPF_SOURCE) {
+        fprintf(out, "SOURCE");
+        first = 0;
+    }
+    if (flags & OPF_MAP) {
+        fprintf(out, "%sMAP", first ? "" : ",");
+        first = 0;
+    }
+    if (flags & OPF_REDUCE) {
+        fprintf(out, "%sREDUCE", first ? "" : ",");
+        first = 0;
+    }
+    if (flags & OPF_SINK) {
+        fprintf(out, "%sSINK", first ? "" : ",");
+        first = 0;
+    }
+    if (flags & OPF_ORDERED) {
+        fprintf(out, "%sORDERED", first ? "" : ",");
+    }
+}
+
+static void dump_plan_ops(const Program *program, int line) {
+    fprintf(stderr, "plan ops line %d:", line);
+    for (int i = 0; i < program->count; i++) {
+        fprintf(stderr, " %s[", op_name(program->ops[i].code));
+        print_flags(stderr, op_flags(program->ops[i].code));
+        fprintf(stderr, "]");
+    }
+    fprintf(stderr, "\n");
+}
+
 static PlanKind detect_plan(const Program *program) {
     int start = 0;
     if (program->count < 2) {
@@ -526,14 +594,14 @@ static PlanKind detect_plan(const Program *program) {
     } else {
         return PLAN_INTERPRET;
     }
-    if (program->count >= start + 4 &&
+    if (program->count == start + 4 &&
         program->ops[start].code == OP_GREP &&
         program->ops[start + 1].code == OP_NUMS &&
         program->ops[start + 2].code == OP_SUM &&
         program->ops[start + 3].code == OP_OUT) {
         return PLAN_SCAN_SUM;
     }
-    if (program->count >= start + 5 &&
+    if (program->count == start + 5 &&
         program->ops[start].code == OP_GREP &&
         program->ops[start + 1].code == OP_PICK &&
         program->ops[start + 2].code == OP_NUMS &&
@@ -541,14 +609,42 @@ static PlanKind detect_plan(const Program *program) {
         program->ops[start + 4].code == OP_OUT) {
         return PLAN_SCAN_SUM;
     }
-    if (program->count >= start + 3 &&
+    if (program->count == start + 3 &&
         program->ops[start].code == OP_NUMS &&
         program->ops[start + 1].code == OP_SUM &&
         program->ops[start + 2].code == OP_OUT) {
         return PLAN_SCAN_SUM;
     }
-    if (program->count >= start + 4 &&
+    if (program->count == start + 4 &&
+        program->ops[start].code == OP_PICK &&
+        program->ops[start + 1].code == OP_NUMS &&
+        program->ops[start + 2].code == OP_SUM &&
+        program->ops[start + 3].code == OP_OUT) {
+        return PLAN_SCAN_SUM;
+    }
+    if (program->count == start + 4 &&
         program->ops[start].code == OP_GREP &&
+        program->ops[start + 1].code == OP_NUMS &&
+        program->ops[start + 2].code == OP_AVG &&
+        program->ops[start + 3].code == OP_OUT) {
+        return PLAN_SCAN_AVG;
+    }
+    if (program->count == start + 5 &&
+        program->ops[start].code == OP_GREP &&
+        program->ops[start + 1].code == OP_PICK &&
+        program->ops[start + 2].code == OP_NUMS &&
+        program->ops[start + 3].code == OP_AVG &&
+        program->ops[start + 4].code == OP_OUT) {
+        return PLAN_SCAN_AVG;
+    }
+    if (program->count == start + 3 &&
+        program->ops[start].code == OP_NUMS &&
+        program->ops[start + 1].code == OP_AVG &&
+        program->ops[start + 2].code == OP_OUT) {
+        return PLAN_SCAN_AVG;
+    }
+    if (program->count == start + 4 &&
+        program->ops[start].code == OP_PICK &&
         program->ops[start + 1].code == OP_NUMS &&
         program->ops[start + 2].code == OP_AVG &&
         program->ops[start + 3].code == OP_OUT) {
@@ -1825,6 +1921,7 @@ static int eval_expr(Runtime *rt, char *expr, int line, Value *out) {
         }
         if (rt->dump_plan) {
             fprintf(stderr, "plan line %d: %s\n", line, plan_program(&program));
+            dump_plan_ops(&program, line);
         }
         return execute_program(rt, &program, line, out);
     }

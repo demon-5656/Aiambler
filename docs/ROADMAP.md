@@ -112,9 +112,11 @@ path.
 
 Current planner status: direct compact `OP_READ` pipelines matching scan/reduce
 patterns execute through a specialized planned kernel instead of stepping through
-each `Op`. Supported planned forms include grep/nums/sum, nums/sum,
-grep/pick/nums/sum, and grep/nums/avg with output. `OP_LOAD` pipelines still use
-the interpreter path because variables may hold non-file values.
+each `Op`. Supported planned forms include grep/nums/sum, pick/nums/sum,
+nums/sum, grep/pick/nums/sum, grep/nums/avg, pick/nums/avg,
+grep/pick/nums/avg, and nums/avg with output. Planner matching is exact for the
+whole compact pipeline. `OP_LOAD` pipelines still use the interpreter path
+because variables may hold non-file values.
 
 ## Phase 4: Parallel Runtime
 
@@ -126,8 +128,9 @@ the interpreter path because variables may hold non-file values.
 Current status: `--jobs N` is used by heavy `fp()`/`mm()` kernels and by direct
 planned file scan/reduce pipelines once input is large enough. The scan backend
 splits the file into byte ranges, starts each worker at a line boundary, and
-combines local numeric totals/counts for sum and average. General operation
-metadata is still pending.
+combines local numeric totals/counts for sum and average. Compact IR ops expose
+basic metadata (`SOURCE`, `MAP`, `REDUCE`, `SINK`, `ORDERED`) in `--dump-plan`;
+the next step is to use this metadata to build more general plans.
 
 ## Phase 5: Core Modules
 

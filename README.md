@@ -89,6 +89,9 @@ Inspect compact IR and execution plan:
 build/aiambler --dump-ir --dump-plan examples/compact.ai
 ```
 
+`--dump-plan` also prints operation metadata such as `SOURCE`, `MAP`,
+`REDUCE`, `SINK`, and `ORDERED`.
+
 Native smoke tests:
 
 ```bash

@@ -48,6 +48,7 @@ grep -q "^160$" "$TMP_DIR/compact_direct.out"
 grep -q "ir line 1: READ(" "$TMP_DIR/dump.err"
 grep -q "GREP(price) NUMS SUM OUT" "$TMP_DIR/dump.err"
 grep -q "plan line 1: SCAN_SUM_CONTAINS" "$TMP_DIR/dump.err"
+grep -q "plan ops line 1: READ\\[SOURCE\\] GREP\\[MAP,ORDERED\\] NUMS\\[MAP,ORDERED\\] SUM\\[REDUCE\\] OUT\\[SINK,ORDERED\\]" "$TMP_DIR/dump.err"
 grep -q "^160$" "$TMP_DIR/dump.out"
 
 cat > "$TMP_DIR/compact_finance.ai" <<AI
@@ -57,6 +58,14 @@ AI
 "$BIN" --dump-plan "$TMP_DIR/compact_finance.ai" > "$TMP_DIR/avg.out" 2> "$TMP_DIR/avg.err"
 grep -q "plan line 1: SCAN_AVG_CONTAINS" "$TMP_DIR/avg.err"
 grep -q "^53.33333333$" "$TMP_DIR/avg.out"
+
+cat > "$TMP_DIR/compact_avg_all.ai" <<AI
+<$TMP_DIR/input.txt|#|+/|!
+AI
+
+"$BIN" --dump-plan "$TMP_DIR/compact_avg_all.ai" > "$TMP_DIR/avg_all.out" 2> "$TMP_DIR/avg_all.err"
+grep -q "plan line 1: SCAN_AVG_CONTAINS" "$TMP_DIR/avg_all.err"
+grep -q "^289.75$" "$TMP_DIR/avg_all.out"
 
 cat > "$TMP_DIR/csv.txt" <<'TXT'
 name,price
@@ -70,6 +79,14 @@ AI
 
 "$BIN" "$TMP_DIR/compact_pick.ai" > "$TMP_DIR/compact_pick.out"
 grep -q "^15.75$" "$TMP_DIR/compact_pick.out"
+
+cat > "$TMP_DIR/compact_pick_avg.ai" <<AI
+<$TMP_DIR/csv.txt|@2|#|+/|!
+AI
+
+"$BIN" --dump-plan "$TMP_DIR/compact_pick_avg.ai" > "$TMP_DIR/compact_pick_avg.out" 2> "$TMP_DIR/compact_pick_avg.err"
+grep -q "plan line 1: SCAN_AVG_CONTAINS" "$TMP_DIR/compact_pick_avg.err"
+grep -q "^7.875$" "$TMP_DIR/compact_pick_avg.out"
 
 cat > "$TMP_DIR/longest.ai" <<AI
 <$TMP_DIR/input.txt|##|!
