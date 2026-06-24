@@ -1,7 +1,11 @@
 # Aiambler MVP
 
-Aiambler is a compact executable intent language for AI agents. This repository
-contains a v0.1 MVP implementation:
+Aiambler is a compact executable intent language for AI agents.
+
+This Python package is the reference prototype. The lightweight runtime is the
+native C interpreter in `native/`.
+
+The Python reference contains:
 
 - line-oriented parser and AST;
 - interpreter with `ro`, `rw`, `admin` access modes;

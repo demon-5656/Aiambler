@@ -1,7 +1,12 @@
 # Aiambler MVP
 
-Aiambler is a compact executable intent language for AI agents. This repository
-contains a v0.1 MVP implementation:
+Aiambler is a compact executable intent language for AI agents.
+
+The primary runtime is a small native interpreter written in C. The Python code
+in this repository is a reference prototype and test harness, not the intended
+runtime for edge devices.
+
+This repository contains a v0.1 MVP implementation:
 
 - line-oriented parser and AST;
 - interpreter with `ro`, `rw`, `admin` access modes;
@@ -10,11 +15,45 @@ contains a v0.1 MVP implementation:
 - outputs: `out.md`, `out.json`, `out.table`, `out.text`;
 - mock `b24` and `gm` connectors;
 - structured action logs;
-- Python compiler.
+- Python compiler/reference runtime.
 
-## Install
+## Native Runtime
 
-Use a virtual environment:
+Build the native interpreter:
+
+```bash
+cd /home/pc243/GIT/Aiambler
+make native
+```
+
+Run an `.ai` script:
+
+```bash
+build/aiambler examples/script.ai
+```
+
+The current native MVP has no third-party dependencies and builds into one small
+binary. It supports:
+
+- `use b24 ro|rw|admin`
+- `use gm ro|rw|admin`
+- `dry`
+- variables
+- `task? ...` and `mail? ...` mock queries
+- pipes: `group(...)`, `sum(...)`, `has(...)`, `out.md`
+- `b24.task.update ...`
+- `b24.task+` in a pipeline
+- `ro` write blocking and dry-run previews
+
+Native smoke tests:
+
+```bash
+make test-native
+```
+
+## Python Reference
+
+Use a virtual environment only if you need the Python prototype:
 
 ```bash
 cd /home/pc243/GIT/Aiambler
@@ -56,4 +95,3 @@ python -m aiambler script.ai
 aiambler --compile-python script.ai
 aiambler --logs script.ai
 ```
-
