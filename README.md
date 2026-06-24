@@ -123,6 +123,28 @@ The heavy benchmark also measures full process startup. NumPy includes Python
 startup and import overhead, so this is an end-to-end command latency comparison,
 not a BLAS-only microbenchmark.
 
+Agent workload benchmark:
+
+```bash
+python3 benchmarks/agent_tasks.py --runs 50
+```
+
+This benchmark compares five common agent tasks: log analysis, CSV finance
+aggregation, price extraction, text replacement, and a composite grep/nums/sum
+pipeline. It reports approximate code tokens as `chars / 4` plus median command
+latency for Aiambler, Python, and awk.
+
+Current local result with 20 runs:
+
+```text
+task          ai_tok py_tok awk_tok ai_ms py_ms  awk_ms ai_vs_py_tok
+logs              12     42      31  1.02 14.03   1.44        3.50
+finance           15     51      21  1.12 11.20   1.54        3.40
+prices_avg        13     50      36  0.96 13.82   2.41        3.85
+replace           15     24      19  1.23  8.69   1.16        1.60
+composite         12     42      31  1.05 12.42   1.27        3.50
+```
+
 ## Python Reference
 
 Use a virtual environment only if you need the Python prototype:

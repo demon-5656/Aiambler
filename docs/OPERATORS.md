@@ -75,7 +75,11 @@ The first compact runtime should implement only this small set:
 | `|` | pipeline | pipe value | `t|#|+|!` |
 | `?` | `OP_GREP` | keep lines containing arg | `t|?price` |
 | `#` | `OP_NUMS` | extract numbers | `t|#` |
+| `##` | `OP_COUNT` | count rows/items/lines | `t|##` |
 | `+` | `OP_SUM` | sum numbers | `t|+` |
+| `+/` | `OP_AVG` | average numbers | `t|+/` |
+| `@N` | `OP_PICK` | pick CSV field N | `t|@2` |
+| `~>a=b` | `OP_REPLACE` | replace text | `t|~>a=b` |
 | `!` | `OP_OUT` | print value | `t!` |
 | `=` | `OP_STORE` | assign expression | `x=1+2` |
 

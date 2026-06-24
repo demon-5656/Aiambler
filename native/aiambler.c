@@ -50,6 +50,7 @@ typedef struct {
     double num;
     int scan_filter;
     int scan_nums;
+    int scan_pick_col;
     char file_path[MAX_LINE];
     char scan_needle[MAX_FIELD_VALUE];
     char text[MAX_OUTPUT];
@@ -76,6 +77,10 @@ typedef enum {
     OP_GREP,
     OP_NUMS,
     OP_SUM,
+    OP_AVG,
+    OP_COUNT,
+    OP_PICK,
+    OP_REPLACE,
     OP_OUT
 } OpCode;
 
@@ -165,6 +170,10 @@ static void append_text(char *buf, size_t size, const char *text);
 static int apply_grep(Value *value, const char *needle);
 static int apply_nums(Value *value);
 static int apply_numeric_sum(Value *value);
+static int apply_avg(Value *value);
+static int apply_count(Value *value);
+static int apply_pick(Value *value, const char *arg);
+static int apply_replace(Value *value, const char *spec);
 static int apply_out_md(Value *value);
 
 static char *unquote(char *text) {
@@ -361,7 +370,9 @@ static int op_add(Program *program, OpCode code, const char *arg) {
 }
 
 static int is_compact_step(const char *step) {
-    return step[0] == '?' || strcmp(step, "#") == 0 || strcmp(step, "+") == 0 || strcmp(step, "!") == 0;
+    return step[0] == '?' || step[0] == '@' || strncmp(step, "~>", 2) == 0 ||
+           strcmp(step, "#") == 0 || strcmp(step, "##") == 0 ||
+           strcmp(step, "+") == 0 || strcmp(step, "+/") == 0 || strcmp(step, "!") == 0;
 }
 
 static int parse_compact_program(char *parts[], int part_count, Program *program) {
@@ -390,12 +401,28 @@ static int parse_compact_program(char *parts[], int part_count, Program *program
             if (!op_add(program, OP_GREP, trim(step + 1))) {
                 return 0;
             }
+        } else if (step[0] == '@') {
+            if (!op_add(program, OP_PICK, trim(step + 1))) {
+                return 0;
+            }
+        } else if (strncmp(step, "~>", 2) == 0) {
+            if (!op_add(program, OP_REPLACE, trim(step + 2))) {
+                return 0;
+            }
         } else if (strcmp(step, "#") == 0) {
             if (!op_add(program, OP_NUMS, "")) {
                 return 0;
             }
+        } else if (strcmp(step, "##") == 0) {
+            if (!op_add(program, OP_COUNT, "")) {
+                return 0;
+            }
         } else if (strcmp(step, "+") == 0) {
             if (!op_add(program, OP_SUM, "")) {
+                return 0;
+            }
+        } else if (strcmp(step, "+/") == 0) {
+            if (!op_add(program, OP_AVG, "")) {
                 return 0;
             }
         } else if (strcmp(step, "!") == 0) {
@@ -855,7 +882,44 @@ static void lazy_path(char *path, Value *out) {
     value_set_file(out, unquote(path));
 }
 
-static int scan_file_sum(Value *value, int line) {
+static const char *pick_csv_field(char *line, int col) {
+    if (col <= 0) {
+        return line;
+    }
+    int current = 1;
+    char *start = line;
+    for (char *p = line; ; p++) {
+        if (*p == ',' || *p == '\0' || *p == '\n') {
+            if (current == col) {
+                *p = '\0';
+                return trim(start);
+            }
+            if (*p == '\0' || *p == '\n') {
+                return "";
+            }
+            current++;
+            start = p + 1;
+        }
+    }
+}
+
+static void accumulate_numbers(const char *src, double *total, int *count) {
+    while (*src != '\0') {
+        if (isdigit((unsigned char)*src) || ((*src == '-' || *src == '+') && isdigit((unsigned char)src[1]))) {
+            char *end = NULL;
+            double number = strtod(src, &end);
+            if (end != src) {
+                *total += number;
+                (*count)++;
+                src = end;
+                continue;
+            }
+        }
+        src++;
+    }
+}
+
+static int scan_file_reduce(Value *value, int line, int average) {
     FILE *file = fopen(value->file_path, "r");
     if (file == NULL) {
         fprintf(stderr, "ERR_FILE\nline: %d\nreason: cannot read %s\n", line, value->file_path);
@@ -863,26 +927,16 @@ static int scan_file_sum(Value *value, int line) {
     }
     char buf[MAX_LINE];
     double total = 0.0;
+    int count = 0;
     while (fgets(buf, sizeof(buf), file) != NULL) {
         if (value->scan_filter && strstr(buf, value->scan_needle) == NULL) {
             continue;
         }
-        char *src = buf;
-        while (*src != '\0') {
-            if (isdigit((unsigned char)*src) || ((*src == '-' || *src == '+') && isdigit((unsigned char)src[1]))) {
-                char *end = NULL;
-                double number = strtod(src, &end);
-                if (end != src) {
-                    total += number;
-                    src = end;
-                    continue;
-                }
-            }
-            src++;
-        }
+        char *src = (char *)pick_csv_field(buf, value->scan_pick_col);
+        accumulate_numbers(src, &total, &count);
     }
     fclose(file);
-    value_set_num(value, total);
+    value_set_num(value, average && count > 0 ? total / (double)count : total);
     return 1;
 }
 
@@ -928,10 +982,36 @@ static int execute_program(Runtime *rt, Program *program, int line, Value *out) 
                 break;
             case OP_SUM:
                 if (value.type == VALUE_FILE) {
-                    if (!scan_file_sum(&value, line)) {
+                    if (!scan_file_reduce(&value, line, 0)) {
                         return 0;
                     }
                 } else if (!apply_numeric_sum(&value)) {
+                    return 0;
+                }
+                break;
+            case OP_AVG:
+                if (value.type == VALUE_FILE) {
+                    if (!scan_file_reduce(&value, line, 1)) {
+                        return 0;
+                    }
+                } else if (!apply_avg(&value)) {
+                    return 0;
+                }
+                break;
+            case OP_COUNT:
+                if (!apply_count(&value)) {
+                    return 0;
+                }
+                break;
+            case OP_PICK:
+                if (value.type == VALUE_FILE) {
+                    value.scan_pick_col = atoi(op->arg);
+                } else if (!apply_pick(&value, op->arg)) {
+                    return 0;
+                }
+                break;
+            case OP_REPLACE:
+                if (!apply_replace(&value, op->arg)) {
                     return 0;
                 }
                 break;
@@ -1025,7 +1105,7 @@ static int apply_numeric_sum(Value *value) {
         return 1;
     }
     if (value->type == VALUE_FILE) {
-        return scan_file_sum(value, 0);
+        return scan_file_reduce(value, 0, 0);
     }
     if (value->type == VALUE_TEXT) {
         const char *src = value->text;
@@ -1057,6 +1137,32 @@ static int apply_numeric_sum(Value *value) {
     return 0;
 }
 
+static int apply_avg(Value *value) {
+    double total = 0.0;
+    int count = 0;
+    if (value->type == VALUE_FILE) {
+        return scan_file_reduce(value, 0, 1);
+    }
+    if (value->type == VALUE_NUM) {
+        return 1;
+    }
+    if (value->type == VALUE_TEXT) {
+        accumulate_numbers(value->text, &total, &count);
+    } else if (value->type == VALUE_ROWS) {
+        for (int i = 0; i < value->row_count; i++) {
+            const char *n = row_get(&value->rows[i], "n");
+            if (n != NULL) {
+                total += strtod(n, NULL);
+                count++;
+            }
+        }
+    } else {
+        return 0;
+    }
+    value_set_num(value, count > 0 ? total / (double)count : 0.0);
+    return 1;
+}
+
 static int apply_count(Value *value) {
     int count = 0;
     if (value->type == VALUE_ROWS) {
@@ -1081,6 +1187,62 @@ static int apply_count(Value *value) {
         count = 1;
     }
     value_set_num(value, (double)count);
+    return 1;
+}
+
+static int apply_pick(Value *value, const char *arg) {
+    int col = atoi(arg);
+    if (value->type == VALUE_FILE) {
+        value->scan_pick_col = col;
+        return 1;
+    }
+    if (value->type != VALUE_TEXT || col <= 0) {
+        return 0;
+    }
+    char src[MAX_OUTPUT];
+    char out[MAX_OUTPUT];
+    snprintf(src, sizeof(src), "%s", value->text);
+    out[0] = '\0';
+    char *line = strtok(src, "\n");
+    while (line != NULL) {
+        append_text(out, sizeof(out), pick_csv_field(line, col));
+        append_text(out, sizeof(out), "\n");
+        line = strtok(NULL, "\n");
+    }
+    value_set_text(value, out);
+    return 1;
+}
+
+static int apply_replace(Value *value, const char *spec) {
+    if (value->type == VALUE_FILE && !materialize_file(value, 0)) {
+        return 0;
+    }
+    if (value->type != VALUE_TEXT) {
+        return 0;
+    }
+    char local[MAX_LINE];
+    snprintf(local, sizeof(local), "%s", spec);
+    char *eq = strchr(local, '=');
+    if (eq == NULL) {
+        return 0;
+    }
+    *eq = '\0';
+    char *old = trim(local);
+    char *new_value = trim(eq + 1);
+    char out[MAX_OUTPUT];
+    out[0] = '\0';
+    char *src = value->text;
+    size_t old_len = strlen(old);
+    while (*src != '\0') {
+        if (old_len > 0 && strncmp(src, old, old_len) == 0) {
+            append_text(out, sizeof(out), new_value);
+            src += old_len;
+        } else {
+            char one[2] = {*src++, '\0'};
+            append_text(out, sizeof(out), one);
+        }
+    }
+    value_set_text(value, out);
     return 1;
 }
 
@@ -1149,7 +1311,7 @@ static int apply_out_md(Value *value) {
         return 1;
     } else if (value->type == VALUE_FILE) {
         if (value->scan_nums) {
-            if (!scan_file_sum(value, 0)) {
+            if (!scan_file_reduce(value, 0, 0)) {
                 return 0;
             }
             print_num(value->num);
@@ -1424,7 +1586,8 @@ static int run_line(Runtime *rt, char *line, int line_no) {
     }
 
     char *eq = strchr(line, '=');
-    if (eq != NULL) {
+    char *first_pipe = strchr(line, '|');
+    if (eq != NULL && (first_pipe == NULL || eq < first_pipe)) {
         *eq = '\0';
         char *name = trim(line);
         char *expr = trim(eq + 1);

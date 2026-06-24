@@ -9,3 +9,4 @@ build/
 *.egg-info/
 benchmarks/prices.txt
 benchmarks/generated_*.ai
+benchmarks/agent_data/

@@ -122,3 +122,33 @@ Priority order:
 6. SQLite;
 7. guarded shell and HTTP;
 8. external connectors.
+
+## Agent Product Track
+
+Benchmark package:
+
+- Maintain five real agent tasks: logs, finance CSV, extraction, replace,
+  composite pipeline.
+- Report approximate generated-code tokens with `chars / 4`.
+- Report runtime latency for Aiambler, Python, and awk.
+- Keep results in README after stable runs.
+
+Agent documentation:
+
+- Prompt examples that generate valid compact Aiambler.
+- Template library for common tasks.
+- Safety guide for read/write/network/shell operations.
+
+Integrations:
+
+- LangChain tool wrapper.
+- AutoGPT wrapper.
+- MCP server exposing the native runtime.
+
+Language expansion:
+
+- CSV column operations.
+- Implemented minimally as compact `@N` for CSV-like field selection.
+- Conditionals.
+- Minimal iteration/map.
+- HTTP client as guarded module.
