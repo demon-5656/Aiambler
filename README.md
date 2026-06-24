@@ -63,6 +63,8 @@ t<examples/numbers.txt
 t|?price|#|+|!
 ```
 
+See [docs/OPERATORS.md](docs/OPERATORS.md) for the compact operator table.
+
 Native smoke tests:
 
 ```bash

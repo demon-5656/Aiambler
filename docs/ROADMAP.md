@@ -15,6 +15,8 @@ Python stays as a reference implementation and test harness.
 
 ## Syntax Tracks
 
+The operator table is specified in [OPERATORS.md](OPERATORS.md).
+
 Verbose/debug syntax:
 
 ```aiambler
@@ -104,4 +106,3 @@ Priority order:
 6. SQLite;
 7. guarded shell and HTTP;
 8. external connectors.
-
