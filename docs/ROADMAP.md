@@ -79,6 +79,12 @@ Current status: compact pipe chains now compile into a minimal `Program` of
 `Op` items before execution. Verbose syntax still uses the compatibility
 evaluator.
 
+Debugging:
+
+```bash
+build/aiambler --dump-ir --dump-plan examples/compact.ai
+```
+
 ## Phase 3: Fusion
 
 Fuse common pipelines:

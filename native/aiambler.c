@@ -66,6 +66,8 @@ typedef struct {
     int gm_mode;
     int dry;
     int jobs;
+    int dump_ir;
+    int dump_plan;
     Variable vars[MAX_VARS];
     int var_count;
 } Runtime;
@@ -93,6 +95,23 @@ typedef struct {
     Op ops[MAX_PIPE];
     int count;
 } Program;
+
+static const char *op_name(OpCode code) {
+    switch (code) {
+        case OP_LOAD: return "LOAD";
+        case OP_READ: return "READ";
+        case OP_GREP: return "GREP";
+        case OP_NUMS: return "NUMS";
+        case OP_SUM: return "SUM";
+        case OP_AVG: return "AVG";
+        case OP_COUNT: return "COUNT";
+        case OP_PICK: return "PICK";
+        case OP_REPLACE: return "REPLACE";
+        case OP_OUT: return "OUT";
+        case OP_NOP: return "NOP";
+    }
+    return "UNKNOWN";
+}
 
 static const Row TASKS[] = {
     {{{"id", "101"}, {"title", "Проверить гарантию"}, {"resp", "15"}, {"status", "open"}, {"project", "Проект 1"}, {"deadline", "2026-06-30"}, {"risk", "low"}}, 7},
@@ -432,6 +451,49 @@ static int parse_compact_program(char *parts[], int part_count, Program *program
         }
     }
     return 1;
+}
+
+static void dump_program(const Program *program, int line) {
+    fprintf(stderr, "ir line %d:", line);
+    for (int i = 0; i < program->count; i++) {
+        fprintf(stderr, " %s", op_name(program->ops[i].code));
+        if (program->ops[i].arg[0] != '\0') {
+            fprintf(stderr, "(%s)", program->ops[i].arg);
+        }
+    }
+    fprintf(stderr, "\n");
+}
+
+static const char *plan_program(const Program *program) {
+    int start = 0;
+    if (program->count < 2) {
+        return "INTERPRET";
+    }
+    if (program->ops[0].code == OP_READ || program->ops[0].code == OP_LOAD) {
+        start = 1;
+    } else {
+        return "INTERPRET";
+    }
+    if (program->count >= start + 4 &&
+        program->ops[start].code == OP_GREP &&
+        program->ops[start + 1].code == OP_NUMS &&
+        program->ops[start + 2].code == OP_SUM &&
+        program->ops[start + 3].code == OP_OUT) {
+        return "SCAN_SUM_CONTAINS";
+    }
+    if (program->count >= start + 3 &&
+        program->ops[start].code == OP_NUMS &&
+        program->ops[start + 1].code == OP_SUM &&
+        program->ops[start + 2].code == OP_OUT) {
+        return "SCAN_SUM_NUMS";
+    }
+    if (program->count >= start + 3 &&
+        program->ops[start].code == OP_GREP &&
+        program->ops[start + 1].code == OP_NUMS &&
+        program->ops[start + 2].code == OP_AVG) {
+        return "SCAN_AVG_CONTAINS";
+    }
+    return "INTERPRET";
 }
 
 typedef struct {
@@ -1525,6 +1587,12 @@ static int eval_expr(Runtime *rt, char *expr, int line, Value *out) {
     }
     Program program;
     if (parse_compact_program(parts, part_count, &program)) {
+        if (rt->dump_ir) {
+            dump_program(&program, line);
+        }
+        if (rt->dump_plan) {
+            fprintf(stderr, "plan line %d: %s\n", line, plan_program(&program));
+        }
         return execute_program(rt, &program, line, out);
     }
     if (!eval_atom(rt, parts[0], line, out)) {
@@ -1613,7 +1681,7 @@ static int run_line(Runtime *rt, char *line, int line_no) {
     return eval_expr(rt, line, line_no, &value);
 }
 
-static int run_file(const char *path, int jobs) {
+static int run_file(const char *path, int jobs, int dump_ir, int dump_plan) {
     FILE *file = fopen(path, "r");
     if (file == NULL) {
         perror(path);
@@ -1622,6 +1690,8 @@ static int run_file(const char *path, int jobs) {
     Runtime rt;
     memset(&rt, 0, sizeof(rt));
     rt.jobs = jobs < 1 ? 1 : jobs;
+    rt.dump_ir = dump_ir;
+    rt.dump_plan = dump_plan;
     char line[MAX_LINE];
     int line_no = 0;
     while (fgets(line, sizeof(line), file) != NULL) {
@@ -1637,24 +1707,30 @@ static int run_file(const char *path, int jobs) {
 
 int main(int argc, char **argv) {
     int jobs = 1;
+    int dump_ir = 0;
+    int dump_plan = 0;
     const char *script = NULL;
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--jobs") == 0 || strcmp(argv[i], "-j") == 0) {
             if (i + 1 >= argc) {
-                fprintf(stderr, "usage: %s [--jobs N] script.ai\n", argv[0]);
+                fprintf(stderr, "usage: %s [--jobs N] [--dump-ir] [--dump-plan] script.ai\n", argv[0]);
                 return 2;
             }
             jobs = atoi(argv[++i]);
             if (jobs < 1) {
                 jobs = 1;
             }
+        } else if (strcmp(argv[i], "--dump-ir") == 0) {
+            dump_ir = 1;
+        } else if (strcmp(argv[i], "--dump-plan") == 0) {
+            dump_plan = 1;
         } else {
             script = argv[i];
         }
     }
     if (script == NULL) {
-        fprintf(stderr, "usage: %s [--jobs N] script.ai\n", argv[0]);
+        fprintf(stderr, "usage: %s [--jobs N] [--dump-ir] [--dump-plan] script.ai\n", argv[0]);
         return 2;
     }
-    return run_file(script, jobs);
+    return run_file(script, jobs, dump_ir, dump_plan);
 }

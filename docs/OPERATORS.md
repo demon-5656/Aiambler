@@ -122,3 +122,5 @@ whether to run tiny sequential, native fused, or native parallel.
 Current implementation note: compact pipe chains already normalize into a small
 `Program`/`Op[]` representation in the native runtime. The verbose syntax remains
 a compatibility layer.
+
+Use `--dump-ir --dump-plan` to inspect normalization and selected plan.

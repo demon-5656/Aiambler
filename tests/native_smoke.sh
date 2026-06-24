@@ -44,6 +44,12 @@ AI
 "$BIN" "$TMP_DIR/compact_direct.ai" > "$TMP_DIR/compact_direct.out"
 grep -q "^160$" "$TMP_DIR/compact_direct.out"
 
+"$BIN" --dump-ir --dump-plan "$TMP_DIR/compact_direct.ai" > "$TMP_DIR/dump.out" 2> "$TMP_DIR/dump.err"
+grep -q "ir line 1: READ(" "$TMP_DIR/dump.err"
+grep -q "GREP(price) NUMS SUM OUT" "$TMP_DIR/dump.err"
+grep -q "plan line 1: SCAN_SUM_CONTAINS" "$TMP_DIR/dump.err"
+grep -q "^160$" "$TMP_DIR/dump.out"
+
 cat > "$TMP_DIR/compact_out.ai" <<'AI'
 a = 12 * 7 + 3
 a!

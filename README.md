@@ -69,6 +69,12 @@ That path scans the file directly and does not materialize the full text buffer.
 Compact pipe chains are normalized into a small native `Op[]` IR before
 execution.
 
+Inspect compact IR and execution plan:
+
+```bash
+build/aiambler --dump-ir --dump-plan examples/compact.ai
+```
+
 Native smoke tests:
 
 ```bash
