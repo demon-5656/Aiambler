@@ -19,7 +19,6 @@ This repository contains a v0.1 MVP implementation focused on small local tasks:
 Build the native interpreter:
 
 ```bash
-cd /home/pc243/GIT/Aiambler
 make native
 ```
 
@@ -143,16 +142,32 @@ numpy mm           56.418 ms
 Agent workload benchmark:
 
 ```bash
-.bench-venv/bin/python benchmarks/agent_tasks.py --runs 30
+python3 benchmarks/agent_tasks.py --runs 30
 ```
 
 Current local latency is about `1.0-1.2 ms` for the native runtime across the
 five bundled agent tasks.
 
+Multi-step workload benchmark:
+
+```bash
+python3 benchmarks/multistep_tasks.py --runs 10 --tiktoken
+```
+
+Current local result with `tiktoken:o200k_base`:
+
+```text
+task              ai_tok py_tok awk_tok ai_ms  py_ms  awk_ms
+incident_triage       43    149     162  1.16  14.92    1.85
+regional_sales        52    109      86  1.11  10.54    1.37
+catalog_migration     42    100      79  1.21  10.19    1.28
+support_digest        51    115      97  0.95   9.26    1.25
+```
+
 Token-only benchmark:
 
 ```bash
-.bench-venv/bin/python benchmarks/token_count.py --tiktoken
+python3 benchmarks/token_count.py --tiktoken
 ```
 
 Current token-count result with `tiktoken:o200k_base`:

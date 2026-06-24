@@ -149,6 +149,8 @@ Benchmark package:
 
 - Maintain five real agent tasks: logs, finance CSV, extraction, replace,
   composite pipeline.
+- Maintain multi-step tasks that combine repeated scans, field extraction,
+  replacement, reductions, and multiple outputs.
 - Report exact generated-code token counts via `tiktoken`.
 - Report runtime latency for Aiambler and baseline implementations.
 - Keep results in README after stable runs.
