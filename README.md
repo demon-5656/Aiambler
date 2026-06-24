@@ -64,6 +64,8 @@ t|?price|#|+|!
 ```
 
 See [docs/OPERATORS.md](docs/OPERATORS.md) for the compact operator table.
+Compact file pipelines use a fused scan path for `?` + `#` + `+` + `!`.
+That path scans the file directly and does not materialize the full text buffer.
 
 Native smoke tests:
 
@@ -88,7 +90,7 @@ aiambler math           0.890    1.00
 python math             8.189    9.21
 awk math                0.928    1.04
 aiambler text           0.778    1.00
-aiambler compact        0.768    0.90
+aiambler compact        0.717    0.90
 python text            12.120   15.57
 awk text                1.096    1.41
 ```

@@ -87,6 +87,18 @@ READ + NUMS + SUM        => SCAN_SUM_NUMS
 The tiny backend runs the fused operation sequentially. The native backend splits
 input into chunks and reduces local results.
 
+Current compatibility-layer fusion:
+
+```aiambler
+t<prices.txt
+t|?price|#|+|!
+```
+
+Compact `<` stores a lazy file source. The `?`, `#`, `+`, `!` chain is executed
+as one file scan instead of materializing the whole file and intermediate arrays.
+This also avoids the fixed text buffer limit used by the verbose compatibility
+path.
+
 ## Phase 4: Parallel Runtime
 
 - Keep `--jobs N`.

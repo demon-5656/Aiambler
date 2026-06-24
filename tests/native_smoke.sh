@@ -45,6 +45,22 @@ AI
 "$BIN" "$TMP_DIR/compact_out.ai" > "$TMP_DIR/compact_out.out"
 grep -q "^87$" "$TMP_DIR/compact_out.out"
 
+: > "$TMP_DIR/large.txt"
+i=0
+while [ "$i" -lt 100 ]; do
+    printf 'note: %0100d\n' "$i" >> "$TMP_DIR/large.txt"
+    printf 'price: 1\n' >> "$TMP_DIR/large.txt"
+    i=$((i + 1))
+done
+
+cat > "$TMP_DIR/large_compact.ai" <<AI
+t<$TMP_DIR/large.txt
+t|?price|#|+|!
+AI
+
+"$BIN" "$TMP_DIR/large_compact.ai" > "$TMP_DIR/large_compact.out"
+grep -q "^100$" "$TMP_DIR/large_compact.out"
+
 cat > "$TMP_DIR/fp.ai" <<'AI'
 fp(1000) |> out
 AI

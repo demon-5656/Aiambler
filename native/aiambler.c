@@ -19,6 +19,7 @@
 typedef enum {
     VALUE_NONE = 0,
     VALUE_NUM,
+    VALUE_FILE,
     VALUE_ROWS,
     VALUE_GROUPS,
     VALUE_TEXT
@@ -47,6 +48,10 @@ typedef struct {
     Group groups[MAX_GROUPS];
     int group_count;
     double num;
+    int scan_filter;
+    int scan_nums;
+    char file_path[MAX_LINE];
+    char scan_needle[MAX_FIELD_VALUE];
     char text[MAX_OUTPUT];
 } Value;
 
@@ -122,6 +127,12 @@ static void value_set_text(Value *value, const char *text) {
     snprintf(value->text, sizeof(value->text), "%s", text);
 }
 
+static void value_set_file(Value *value, const char *path) {
+    value_clear(value);
+    value->type = VALUE_FILE;
+    snprintf(value->file_path, sizeof(value->file_path), "%s", path);
+}
+
 static void print_num(double num) {
     if (num == (long long)num) {
         printf("%lld\n", (long long)num);
@@ -131,6 +142,18 @@ static void print_num(double num) {
 }
 
 static void append_text(char *buf, size_t size, const char *text);
+
+static char *unquote(char *text) {
+    text = trim(text);
+    if (*text == '"' || *text == '\'') {
+        char quote = *text++;
+        size_t len = strlen(text);
+        if (len > 0 && text[len - 1] == quote) {
+            text[len - 1] = '\0';
+        }
+    }
+    return text;
+}
 
 static const char *row_get(const Row *row, const char *key) {
     for (int i = 0; i < row->count; i++) {
@@ -733,14 +756,7 @@ static int apply_has(Value *value, const char *field) {
 }
 
 static int run_file_read(char *expr, int line, Value *out) {
-    char *path = trim(expr + 9);
-    if (*path == '"' || *path == '\'') {
-        char quote = *path++;
-        size_t len = strlen(path);
-        if (len > 0 && path[len - 1] == quote) {
-            path[len - 1] = '\0';
-        }
-    }
+    char *path = unquote(expr + 9);
     FILE *file = fopen(path, "r");
     if (file == NULL) {
         fprintf(stderr, "ERR_FILE\nline: %d\nreason: cannot read %s\n", line, path);
@@ -754,13 +770,58 @@ static int run_file_read(char *expr, int line, Value *out) {
     return 1;
 }
 
-static int read_path(const char *path, int line, Value *out) {
+static void lazy_path(char *path, Value *out) {
+    value_set_file(out, unquote(path));
+}
+
+static int scan_file_sum(Value *value, int line) {
+    FILE *file = fopen(value->file_path, "r");
+    if (file == NULL) {
+        fprintf(stderr, "ERR_FILE\nline: %d\nreason: cannot read %s\n", line, value->file_path);
+        return 0;
+    }
     char buf[MAX_LINE];
-    snprintf(buf, sizeof(buf), "file.read %s", path);
-    return run_file_read(buf, line, out);
+    double total = 0.0;
+    while (fgets(buf, sizeof(buf), file) != NULL) {
+        if (value->scan_filter && strstr(buf, value->scan_needle) == NULL) {
+            continue;
+        }
+        char *src = buf;
+        while (*src != '\0') {
+            if (isdigit((unsigned char)*src) || ((*src == '-' || *src == '+') && isdigit((unsigned char)src[1]))) {
+                char *end = NULL;
+                double number = strtod(src, &end);
+                if (end != src) {
+                    total += number;
+                    src = end;
+                    continue;
+                }
+            }
+            src++;
+        }
+    }
+    fclose(file);
+    value_set_num(value, total);
+    return 1;
+}
+
+static int materialize_file(Value *value, int line) {
+    char expr[MAX_LINE + 16];
+    Value loaded;
+    snprintf(expr, sizeof(expr), "file.read %s", value->file_path);
+    if (!run_file_read(expr, line, &loaded)) {
+        return 0;
+    }
+    *value = loaded;
+    return 1;
 }
 
 static int apply_grep(Value *value, const char *needle) {
+    if (value->type == VALUE_FILE) {
+        value->scan_filter = 1;
+        snprintf(value->scan_needle, sizeof(value->scan_needle), "%s", needle);
+        return 1;
+    }
     if (value->type != VALUE_TEXT) {
         return 0;
     }
@@ -784,7 +845,10 @@ static int apply_nums(Value *value) {
     const char *src = NULL;
     char combined[MAX_OUTPUT];
     combined[0] = '\0';
-    if (value->type == VALUE_TEXT) {
+    if (value->type == VALUE_FILE) {
+        value->scan_nums = 1;
+        return 1;
+    } else if (value->type == VALUE_TEXT) {
         src = value->text;
     } else if (value->type == VALUE_ROWS) {
         for (int r = 0; r < value->row_count; r++) {
@@ -827,6 +891,9 @@ static int apply_numeric_sum(Value *value) {
     if (value->type == VALUE_NUM) {
         return 1;
     }
+    if (value->type == VALUE_FILE) {
+        return scan_file_sum(value, 0);
+    }
     if (value->type == VALUE_TEXT) {
         const char *src = value->text;
         while (*src != '\0') {
@@ -863,6 +930,11 @@ static int apply_count(Value *value) {
         count = value->row_count;
     } else if (value->type == VALUE_GROUPS) {
         count = value->group_count;
+    } else if (value->type == VALUE_FILE) {
+        if (!materialize_file(value, 0)) {
+            return 0;
+        }
+        return apply_count(value);
     } else if (value->type == VALUE_TEXT) {
         for (char *p = value->text; *p; p++) {
             if (*p == '\n') {
@@ -880,6 +952,11 @@ static int apply_count(Value *value) {
 }
 
 static int apply_len(Value *value) {
+    if (value->type == VALUE_FILE) {
+        if (!materialize_file(value, 0)) {
+            return 0;
+        }
+    }
     if (value->type != VALUE_TEXT) {
         return 0;
     }
@@ -937,6 +1014,18 @@ static int apply_out_md(Value *value) {
             printf("\n");
         }
         return 1;
+    } else if (value->type == VALUE_FILE) {
+        if (value->scan_nums) {
+            if (!scan_file_sum(value, 0)) {
+                return 0;
+            }
+            print_num(value->num);
+            return 1;
+        }
+        if (!materialize_file(value, 0)) {
+            return 0;
+        }
+        return apply_out_md(value);
     }
     value_clear(value);
     value->type = VALUE_TEXT;
@@ -1006,7 +1095,8 @@ static int eval_atom(Runtime *rt, char *atom, int line, Value *out) {
         return run_file_read(atom, line, out);
     }
     if (*atom == '<') {
-        return read_path(trim(atom + 1), line, out);
+        lazy_path(atom + 1, out);
+        return 1;
     }
     if (strncmp(atom, "fp(", 3) == 0) {
         return run_fp(rt, atom, line, out);
@@ -1188,9 +1278,7 @@ static int run_line(Runtime *rt, char *line, int line_no) {
         char *name = trim(line);
         char *path = trim(compact_read + 1);
         Value value;
-        if (!read_path(path, line_no, &value)) {
-            return 0;
-        }
+        lazy_path(path, &value);
         if (!save_var(rt, name, &value)) {
             fprintf(stderr, "ERR_RUNTIME\nline: %d\nreason: too many variables\n", line_no);
             return 0;
