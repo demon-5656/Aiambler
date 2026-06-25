@@ -53,6 +53,7 @@ typedef struct {
     int scan_filter;
     int scan_nums;
     int scan_pick_col;
+    char scan_pick_sep;
     char file_path[MAX_LINE];
     char scan_needle[MAX_FIELD_VALUE];
     char text[MAX_OUTPUT];
@@ -239,6 +240,7 @@ static int apply_count(Value *value);
 static int apply_pick(Value *value, const char *arg);
 static int apply_replace(Value *value, const char *spec);
 static int apply_out_md(Value *value);
+static int apply_replace_call(Value *value, char *arg);
 
 static char *unquote(char *text) {
     text = trim(text);
@@ -495,6 +497,77 @@ static int parse_compact_program(char *parts[], int part_count, Program *program
                 return 0;
             }
         } else if (token == TOK_OUT && *trim((char *)arg) == '\0') {
+            if (!op_add(program, OP_OUT, "")) {
+                return 0;
+            }
+        } else {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+static int parse_call_arg(char *step, const char *name, char **arg) {
+    size_t len = strlen(name);
+    if (strncmp(step, name, len) != 0 || step[len] != '(') {
+        return 0;
+    }
+    *arg = step + len + 1;
+    char *end = strrchr(*arg, ')');
+    if (end == NULL || trim(end + 1)[0] != '\0') {
+        return 0;
+    }
+    *end = '\0';
+    *arg = trim(*arg);
+    return 1;
+}
+
+static int parse_verbose_program(char *parts[], int part_count, Program *program) {
+    program->count = 0;
+    if (part_count < 1 || parts[0][0] != '<') {
+        return 0;
+    }
+    if (!op_add(program, OP_READ, trim(parts[0] + 1))) {
+        return 0;
+    }
+    for (int i = 1; i < part_count; i++) {
+        char *step = trim(parts[i]);
+        char *arg = NULL;
+        if (parse_call_arg(step, "filter", &arg) || parse_call_arg(step, "grep", &arg)) {
+            if (!op_add(program, OP_GREP, arg)) {
+                return 0;
+            }
+        } else if (parse_call_arg(step, "pick", &arg) || parse_call_arg(step, "take", &arg)) {
+            if (!op_add(program, OP_PICK, arg)) {
+                return 0;
+            }
+        } else if (parse_call_arg(step, "replace", &arg)) {
+            char local[MAX_LINE];
+            snprintf(local, sizeof(local), "%s", arg);
+            char *comma = strchr(local, ',');
+            if (comma != NULL) {
+                *comma = '=';
+            }
+            if (!op_add(program, OP_REPLACE, local)) {
+                return 0;
+            }
+        } else if (strcmp(step, "extract_numbers") == 0 || strcmp(step, "numbers") == 0 || strcmp(step, "nums") == 0) {
+            if (!op_add(program, OP_NUMS, "")) {
+                return 0;
+            }
+        } else if (strcmp(step, "sum") == 0) {
+            if (!op_add(program, OP_SUM, "")) {
+                return 0;
+            }
+        } else if (strcmp(step, "average") == 0 || strcmp(step, "avg") == 0) {
+            if (!op_add(program, OP_AVG, "")) {
+                return 0;
+            }
+        } else if (strcmp(step, "count") == 0) {
+            if (!op_add(program, OP_COUNT, "")) {
+                return 0;
+            }
+        } else if (strcmp(step, "output") == 0 || strcmp(step, "out") == 0) {
             if (!op_add(program, OP_OUT, "")) {
                 return 0;
             }
@@ -1105,14 +1178,25 @@ static void lazy_path(char *path, Value *out) {
     value_set_file(out, unquote(path));
 }
 
-static const char *pick_csv_field(char *line, int col) {
+static int parse_pick_spec(const char *arg, int *col, char *sep) {
+    arg = trim((char *)arg);
+    *sep = ',';
+    if (*arg == 't' || *arg == 'T') {
+        *sep = '\t';
+        arg++;
+    }
+    *col = atoi(arg);
+    return *col > 0;
+}
+
+static const char *pick_delimited_field(char *line, int col, char sep) {
     if (col <= 0) {
         return line;
     }
     int current = 1;
     char *start = line;
     for (char *p = line; ; p++) {
-        if (*p == ',' || *p == '\0' || *p == '\n') {
+        if (*p == sep || *p == '\0' || *p == '\n') {
             if (current == col) {
                 *p = '\0';
                 return trim(start);
@@ -1149,6 +1233,7 @@ typedef struct {
     long end;
     int scan_filter;
     int scan_pick_col;
+    char scan_pick_sep;
     double total;
     int count;
     int ok;
@@ -1189,7 +1274,7 @@ static void *scan_range_worker(void *arg) {
         if (job->scan_filter && strstr(buf, job->needle) == NULL) {
             continue;
         }
-        char *src = (char *)pick_csv_field(buf, job->scan_pick_col);
+        char *src = (char *)pick_delimited_field(buf, job->scan_pick_col, job->scan_pick_sep);
         accumulate_numbers(src, &job->total, &job->count);
     }
     fclose(file);
@@ -1210,7 +1295,7 @@ static int scan_file_reduce(Value *value, int line, int average) {
         if (value->scan_filter && strstr(buf, value->scan_needle) == NULL) {
             continue;
         }
-        char *src = (char *)pick_csv_field(buf, value->scan_pick_col);
+        char *src = (char *)pick_delimited_field(buf, value->scan_pick_col, value->scan_pick_sep);
         accumulate_numbers(src, &total, &count);
     }
     fclose(file);
@@ -1267,6 +1352,7 @@ static int scan_file_reduce_auto(Value *value, int line, int average, int jobs) 
         work[j].end = cursor + len;
         work[j].scan_filter = value->scan_filter;
         work[j].scan_pick_col = value->scan_pick_col;
+        work[j].scan_pick_sep = value->scan_pick_sep == '\0' ? ',' : value->scan_pick_sep;
         cursor += len;
         if (pthread_create(&threads[j], NULL, scan_range_worker, &work[j]) != 0) {
             for (int k = 0; k < j; k++) {
@@ -1323,7 +1409,9 @@ static int execute_planned_program(Program *program, PlanKind plan, int line, in
             value.scan_filter = 1;
             snprintf(value.scan_needle, sizeof(value.scan_needle), "%s", op->arg);
         } else if (op->code == OP_PICK) {
-            value.scan_pick_col = atoi(op->arg);
+            if (!parse_pick_spec(op->arg, &value.scan_pick_col, &value.scan_pick_sep)) {
+                return 0;
+            }
         }
     }
     if (!scan_file_reduce_auto(&value, line, plan == PLAN_SCAN_AVG, jobs)) {
@@ -1396,7 +1484,9 @@ static int execute_program(Runtime *rt, Program *program, int line, Value *out) 
                 break;
             case OP_PICK:
                 if (value.type == VALUE_FILE) {
-                    value.scan_pick_col = atoi(op->arg);
+                    if (!parse_pick_spec(op->arg, &value.scan_pick_col, &value.scan_pick_sep)) {
+                        return 0;
+                    }
                 } else if (!apply_pick(&value, op->arg)) {
                     return 0;
                 }
@@ -1582,12 +1672,17 @@ static int apply_count(Value *value) {
 }
 
 static int apply_pick(Value *value, const char *arg) {
-    int col = atoi(arg);
+    int col = 0;
+    char sep = ',';
+    if (!parse_pick_spec(arg, &col, &sep)) {
+        return 0;
+    }
     if (value->type == VALUE_FILE) {
         value->scan_pick_col = col;
+        value->scan_pick_sep = sep;
         return 1;
     }
-    if (value->type != VALUE_TEXT || col <= 0) {
+    if (value->type != VALUE_TEXT) {
         return 0;
     }
     char src[MAX_OUTPUT];
@@ -1596,7 +1691,7 @@ static int apply_pick(Value *value, const char *arg) {
     out[0] = '\0';
     char *line = strtok(src, "\n");
     while (line != NULL) {
-        append_text(out, sizeof(out), pick_csv_field(line, col));
+        append_text(out, sizeof(out), pick_delimited_field(line, col, sep));
         append_text(out, sizeof(out), "\n");
         line = strtok(NULL, "\n");
     }
@@ -1635,6 +1730,16 @@ static int apply_replace(Value *value, const char *spec) {
     }
     value_set_text(value, out);
     return 1;
+}
+
+static int apply_replace_call(Value *value, char *arg) {
+    char local[MAX_LINE];
+    snprintf(local, sizeof(local), "%s", arg);
+    char *comma = strchr(local, ',');
+    if (comma != NULL) {
+        *comma = '=';
+    }
+    return apply_replace(value, local);
 }
 
 static int apply_len(Value *value) {
@@ -1844,11 +1949,14 @@ static int apply_step(Runtime *rt, Value *value, char *step, int line) {
     if (strcmp(step, "sum") == 0) {
         return apply_numeric_sum(value);
     }
-    if (strcmp(step, "nums") == 0) {
+    if (strcmp(step, "nums") == 0 || strcmp(step, "extract_numbers") == 0 || strcmp(step, "numbers") == 0) {
         return apply_nums(value);
     }
-    if (strncmp(step, "grep(", 5) == 0) {
-        char *arg = step + 5;
+    if (strcmp(step, "avg") == 0 || strcmp(step, "average") == 0) {
+        return apply_avg(value);
+    }
+    if (strncmp(step, "grep(", 5) == 0 || strncmp(step, "filter(", 7) == 0) {
+        char *arg = strchr(step, '(') + 1;
         char *end = strrchr(arg, ')');
         if (end != NULL) {
             *end = '\0';
@@ -1862,6 +1970,22 @@ static int apply_step(Runtime *rt, Value *value, char *step, int line) {
             }
         }
         return apply_grep(value, arg);
+    }
+    if (strncmp(step, "pick(", 5) == 0 || strncmp(step, "take(", 5) == 0) {
+        char *arg = step + 5;
+        char *end = strrchr(arg, ')');
+        if (end != NULL) {
+            *end = '\0';
+        }
+        return apply_pick(value, trim(arg));
+    }
+    if (strncmp(step, "replace(", 8) == 0) {
+        char *arg = step + 8;
+        char *end = strrchr(arg, ')');
+        if (end != NULL) {
+            *end = '\0';
+        }
+        return apply_replace_call(value, arg);
     }
     if (strcmp(step, "count") == 0) {
         return apply_count(value);
@@ -1880,7 +2004,7 @@ static int apply_step(Runtime *rt, Value *value, char *step, int line) {
     if (strcmp(step, "out.md") == 0) {
         return apply_out_md(value);
     }
-    if (strcmp(step, "out") == 0 || strcmp(step, "out.text") == 0) {
+    if (strcmp(step, "out") == 0 || strcmp(step, "out.text") == 0 || strcmp(step, "output") == 0) {
         return apply_out_md(value);
     }
     if (strcmp(step, "b24.task+") == 0) {
@@ -1915,7 +2039,7 @@ static int eval_expr(Runtime *rt, char *expr, int line, Value *out) {
         return 1;
     }
     Program program;
-    if (parse_compact_program(parts, part_count, &program)) {
+    if (parse_compact_program(parts, part_count, &program) || parse_verbose_program(parts, part_count, &program)) {
         if (rt->dump_ir) {
             dump_program(&program, line);
         }

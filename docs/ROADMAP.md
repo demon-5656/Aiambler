@@ -74,9 +74,9 @@ typedef enum {
 
 Pipeline source code should compile into an `Op[]` program before execution.
 
-Current status: compact pipe chains now compile into a minimal `Program` of
-`Op` items before execution. Verbose syntax still uses the compatibility
-evaluator.
+Current status: compact pipe chains and direct verbose read pipelines compile
+into a minimal `Program` of `Op` items before execution. Other verbose syntax
+still uses the compatibility evaluator.
 
 Debugging:
 
@@ -152,6 +152,8 @@ Benchmark package:
 - Maintain multi-step tasks that combine repeated scans, field extraction,
   replacement, reductions, and multiple outputs.
 - Report exact generated-code token counts via `tiktoken`.
+- Compare compact Aiambler, verbose Aiambler, Python, and awk for the active
+  tokenizer instead of assuming character count predicts token count.
 - Report runtime latency for Aiambler and baseline implementations.
 - Keep results in README after stable runs.
 
@@ -169,8 +171,8 @@ Integrations:
 
 Language expansion:
 
-- CSV column operations: minimally implemented as compact `@N` for CSV-like
-  field selection.
+- CSV/TSV column operations: minimally implemented as compact `@N` for CSV and
+  `@tN` for TSV field selection.
 - Text replacement: minimally implemented as compact `~>old=new`.
 - Conditionals.
 - Minimal iteration/map.

@@ -35,8 +35,10 @@ binary. It supports:
 - variables
 - `file.read path`
 - quoted text literals
-- compact pipes: `?`, `#`, `##`, `+`, `+/`, `@N`, `~>old=new`, `!`
+- compact pipes: `?`, `#`, `##`, `+`, `+/`, `@N`, `@tN`, `~>old=new`, `!`
 - pipes: `grep(...)`, `nums`, `sum`, `count`, `len`, `out`
+- verbose aliases: `filter(...)`, `extract_numbers`, `average`, `pick(...)`,
+  `take(...)`, `replace(old,new)`, `output`
 - legacy mock pipes: `group(...)`, `sum(fields)`, `has(...)`, `out.md`
 - legacy mock connector examples: `task? ...`, `mail? ...`, `b24.task.update ...`
 
@@ -64,6 +66,7 @@ CSV-like column extraction and text replacement:
 
 ```aiambler
 <prices.csv|@2|#|+|!
+<prices.tsv|@t2|#|+|!
 <report.txt|~>TODO=DONE|!
 ```
 
@@ -79,6 +82,8 @@ scan/reduce kernel. Other compact file pipelines keep the lazy file source when
 possible and materialize text only for operations such as `##` and `~>`.
 For larger direct file scans, `--jobs N` splits the file into line-safe ranges
 and reduces local numeric results in parallel.
+For one-shot scans, direct `<file|...` pipelines are the preferred token-minimal
+form because they avoid a temporary variable and a second line.
 
 Inspect compact IR and execution plan:
 
@@ -88,6 +93,8 @@ build/aiambler --dump-ir --dump-plan examples/compact.ai
 
 `--dump-plan` also prints operation metadata such as `SOURCE`, `MAP`,
 `REDUCE`, `SINK`, and `ORDERED`.
+Direct verbose read pipelines also normalize into IR and can use the same
+planned scan/reduce backend.
 
 Native smoke tests:
 
@@ -167,19 +174,23 @@ support_digest        51    115      97  0.95   9.26    1.25
 Token-only benchmark:
 
 ```bash
-python3 benchmarks/token_count.py --tiktoken
+python3 benchmarks/token_count.py --tiktoken --encoding cl100k_base
 ```
 
-Current token-count result with `tiktoken:o200k_base`:
+Current token-count result with `tiktoken:cl100k_base`:
 
 ```text
-task        ai_chars ai_tok py_chars py_tok awk_chars awk_tok py/ai awk/ai
-logs              50     20      169     56       124      51  2.80   2.55
-finance           61     27      204     60        85      31  2.22   1.15
-prices_avg        51     21      199     62       145      65  2.95   3.10
-replace           61     25       96     27        77      24  1.08   0.96
-composite         49     20      168     56       123      51  2.80   2.55
+task        compact verbose best best_form python awk  py/best awk/best
+logs             16      19   16 compact       56  51     3.50     3.19
+finance          23      28   23 compact       60  31     2.61     1.35
+prices_avg       17      20   17 compact       62  63     3.65     3.71
+replace          22      23   22 compact       27  23     1.23     1.05
+composite        16      19   16 compact       56  51     3.50     3.19
 ```
+
+Compact syntax is not assumed to be token-optimal. The benchmark compares both
+compact and verbose Aiambler forms, then reports the cheaper active form as
+`best`.
 
 Remove generated local artifacts:
 

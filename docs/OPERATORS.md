@@ -79,6 +79,7 @@ The first compact runtime should implement only this small set:
 | `+` | `OP_SUM` | sum numbers | `t|+` |
 | `+/` | `OP_AVG` | average numbers | `t|+/` |
 | `@N` | `OP_PICK` | pick CSV field N | `t|@2` |
+| `@tN` | `OP_PICK` | pick TSV field N | `t|@t2` |
 | `~>a=b` | `OP_REPLACE` | replace text | `t|~>a=b` |
 | `!` | `OP_OUT` | print value | `t!` |
 | `=` | `OP_STORE` | assign expression | `x=1+2` |
@@ -127,3 +128,20 @@ Use `--dump-ir --dump-plan` to inspect normalization and selected plan.
 The native compact parser uses a longest-match operator scanner for implemented
 operators, so `##` is parsed as count before `#`, and `+/` is parsed as average
 before `+`.
+
+## Verbose Aliases
+
+Verbose aliases are supported for model-generated scripts and token comparison:
+
+| Alias | Compact Equivalent |
+|---|---|
+| `filter(x)` | `?x` |
+| `extract_numbers` / `numbers` | `#` |
+| `average` / `avg` | `+/` |
+| `pick(N)` / `take(N)` | `@N` |
+| `replace(a,b)` | `~>a=b` |
+| `output` | `!` |
+
+Direct verbose read pipelines such as
+`<prices.txt|filter(price)|extract_numbers|sum|output` normalize into the same
+IR as compact pipelines and can use the same planned scan/reduce backend.

@@ -15,6 +15,7 @@ DATA = ROOT / "benchmarks" / "agent_data"
 class Case:
     name: str
     ai: str
+    ai_verbose: str
     py: str
     awk: str
     ai_cmd: list[str]
@@ -53,14 +54,22 @@ def setup() -> list[Case]:
     write(DATA / "data.log", data_log)
 
     scripts = {
-        "logs": "t<benchmarks/agent_data/server.log\nt|?ERROR|#|+|!\n",
-        "finance": "t<benchmarks/agent_data/transactions.csv\nt|?2026-06|@2|#|+|!\n",
-        "prices": "t<benchmarks/agent_data/prices.txt\nt|?price|#|+/|!\n",
-        "replace": "t<benchmarks/agent_data/config.txt\nt|~>localhost=127.0.0.1|!\n",
-        "composite": "t<benchmarks/agent_data/data.log\nt|?metric|#|+|!\n",
+        "logs": "<benchmarks/agent_data/server.log|?ERROR|#|+|!\n",
+        "finance": "<benchmarks/agent_data/transactions.csv|?2026-06|@2|#|+|!\n",
+        "prices": "<benchmarks/agent_data/prices.txt|?price|#|+/|!\n",
+        "replace": "<benchmarks/agent_data/config.txt|~>localhost=127.0.0.1|!\n",
+        "composite": "<benchmarks/agent_data/data.log|?metric|#|+|!\n",
+    }
+    verbose_scripts = {
+        "logs": "<benchmarks/agent_data/server.log|filter(ERROR)|extract_numbers|sum|output\n",
+        "finance": "<benchmarks/agent_data/transactions.csv|filter(2026-06)|pick(2)|extract_numbers|sum|output\n",
+        "prices": "<benchmarks/agent_data/prices.txt|filter(price)|extract_numbers|average|output\n",
+        "replace": "<benchmarks/agent_data/config.txt|replace(localhost,127.0.0.1)|output\n",
+        "composite": "<benchmarks/agent_data/data.log|filter(metric)|extract_numbers|sum|output\n",
     }
     for name, text in scripts.items():
         write(DATA / f"{name}.ai", text)
+        write(DATA / f"{name}_verbose.ai", verbose_scripts[name])
 
     py = {
         "logs": """import re\ns=0\nfor line in open('benchmarks/agent_data/server.log'):\n    if 'ERROR' in line:\n        s += sum(map(int, re.findall(r'[-+]?\\d+(?:\\.\\d+)?', line)))\nprint(s)\n""",
@@ -76,6 +85,7 @@ def setup() -> list[Case]:
         Case(
             "logs",
             scripts["logs"],
+            verbose_scripts["logs"],
             py["logs"],
             "awk '/ERROR/ { for(i=1;i<=NF;i++) if($i ~ /^[-+]?[0-9]+(\\.[0-9]+)?$/) s+=$i } END{print s}' benchmarks/agent_data/server.log",
             ["build/aiambler", str(DATA / "logs.ai")],
@@ -85,6 +95,7 @@ def setup() -> list[Case]:
         Case(
             "finance",
             scripts["finance"],
+            verbose_scripts["finance"],
             py["finance"],
             "awk -F, '$1 ~ /^2026-06/ {s+=$2} END{print s}' benchmarks/agent_data/transactions.csv",
             ["build/aiambler", str(DATA / "finance.ai")],
@@ -94,6 +105,7 @@ def setup() -> list[Case]:
         Case(
             "prices_avg",
             scripts["prices"],
+            verbose_scripts["prices"],
             py["prices"],
             "awk '/price/ { for(i=1;i<=NF;i++) if($i ~ /[0-9]+\\.[0-9]+/) {gsub(/[^0-9.]/,\"\",$i); s+=$i; c++}} END{print s/c}' benchmarks/agent_data/prices.txt",
             ["build/aiambler", str(DATA / "prices.ai")],
@@ -103,6 +115,7 @@ def setup() -> list[Case]:
         Case(
             "replace",
             scripts["replace"],
+            verbose_scripts["replace"],
             py["replace"],
             "awk '{gsub(/localhost/,\"127.0.0.1\"); print}' benchmarks/agent_data/config.txt",
             ["build/aiambler", str(DATA / "replace.ai")],
@@ -112,6 +125,7 @@ def setup() -> list[Case]:
         Case(
             "composite",
             scripts["composite"],
+            verbose_scripts["composite"],
             py["composite"],
             "awk '/metric/ { for(i=1;i<=NF;i++) if($i ~ /^[-+]?[0-9]+(\\.[0-9]+)?$/) s+=$i } END{print s}' benchmarks/agent_data/data.log",
             ["build/aiambler", str(DATA / "composite.ai")],

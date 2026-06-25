@@ -29,6 +29,16 @@ AI
 "$BIN" "$TMP_DIR/text.ai" > "$TMP_DIR/text.out"
 grep -q "^160$" "$TMP_DIR/text.out"
 
+cat > "$TMP_DIR/verbose_aliases.ai" <<AI
+text = file.read "$TMP_DIR/input.txt"
+text |> filter(price) |> extract_numbers |> average |> output
+text |> replace(price,cost) |> output
+AI
+
+"$BIN" "$TMP_DIR/verbose_aliases.ai" > "$TMP_DIR/verbose_aliases.out"
+grep -q "^53.33333333$" "$TMP_DIR/verbose_aliases.out"
+grep -q "cost: 120" "$TMP_DIR/verbose_aliases.out"
+
 cat > "$TMP_DIR/compact.ai" <<AI
 t<$TMP_DIR/input.txt
 t|?price|#|+|!
@@ -50,6 +60,16 @@ grep -q "GREP(price) NUMS SUM OUT" "$TMP_DIR/dump.err"
 grep -q "plan line 1: SCAN_SUM_CONTAINS" "$TMP_DIR/dump.err"
 grep -q "plan ops line 1: READ\\[SOURCE\\] GREP\\[MAP,ORDERED\\] NUMS\\[MAP,ORDERED\\] SUM\\[REDUCE\\] OUT\\[SINK,ORDERED\\]" "$TMP_DIR/dump.err"
 grep -q "^160$" "$TMP_DIR/dump.out"
+
+cat > "$TMP_DIR/verbose_direct.ai" <<AI
+<$TMP_DIR/input.txt|filter(price)|extract_numbers|sum|output
+AI
+
+"$BIN" --dump-ir --dump-plan "$TMP_DIR/verbose_direct.ai" > "$TMP_DIR/verbose_direct.out" 2> "$TMP_DIR/verbose_direct.err"
+grep -q "ir line 1: READ(" "$TMP_DIR/verbose_direct.err"
+grep -q "GREP(price) NUMS SUM OUT" "$TMP_DIR/verbose_direct.err"
+grep -q "plan line 1: SCAN_SUM_CONTAINS" "$TMP_DIR/verbose_direct.err"
+grep -q "^160$" "$TMP_DIR/verbose_direct.out"
 
 cat > "$TMP_DIR/compact_finance.ai" <<AI
 <$TMP_DIR/input.txt|?price|#|+/|!
@@ -79,6 +99,29 @@ AI
 
 "$BIN" "$TMP_DIR/compact_pick.ai" > "$TMP_DIR/compact_pick.out"
 grep -q "^15.75$" "$TMP_DIR/compact_pick.out"
+
+cat > "$TMP_DIR/verbose_pick.ai" <<AI
+text = file.read "$TMP_DIR/csv.txt"
+text |> take(2) |> extract_numbers |> sum |> output
+text |> pick(2) |> extract_numbers |> average |> output
+AI
+
+"$BIN" "$TMP_DIR/verbose_pick.ai" > "$TMP_DIR/verbose_pick.out"
+grep -q "^15.75$" "$TMP_DIR/verbose_pick.out"
+grep -q "^7.875$" "$TMP_DIR/verbose_pick.out"
+
+cat > "$TMP_DIR/tsv.txt" <<'TXT'
+name	price
+book	12.50
+pen	3.25
+TXT
+
+cat > "$TMP_DIR/compact_tsv.ai" <<AI
+<$TMP_DIR/tsv.txt|@t2|#|+|!
+AI
+
+"$BIN" "$TMP_DIR/compact_tsv.ai" > "$TMP_DIR/compact_tsv.out"
+grep -q "^15.75$" "$TMP_DIR/compact_tsv.out"
 
 cat > "$TMP_DIR/compact_pick_avg.ai" <<AI
 <$TMP_DIR/csv.txt|@2|#|+/|!
