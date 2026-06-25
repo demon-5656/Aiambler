@@ -154,6 +154,10 @@ Benchmark package:
 - Report exact generated-code token counts via `tiktoken`.
 - Compare compact Aiambler, verbose Aiambler, Python, and awk for the active
   tokenizer instead of assuming character count predicts token count.
+- Maintain a separate `token_min` profile for model-facing generated scripts.
+- Track candidate syntax for units, objects, loops, and parsers in
+  [TOKEN_MIN.md](TOKEN_MIN.md) before implementing them.
+- Track dimensional namespace rules in [DIMENSIONS.md](DIMENSIONS.md).
 - Report runtime latency for Aiambler and baseline implementations.
 - Keep results in README after stable runs.
 
@@ -174,6 +178,11 @@ Language expansion:
 - CSV/TSV column operations: minimally implemented as compact `@N` for CSV and
   `@tN` for TSV field selection.
 - Text replacement: minimally implemented as compact `~>old=new`.
+- Token-min unit definitions.
+- Dimensional line ordering for scalar/vector/matrix-style agent units:
+  minimally implemented for `3:`/`2:`/`1:`/`0:` and
+  `source`/`matrix`/`log`/`system`; strict variable visibility is pending.
+- Object/record syntax.
 - Conditionals.
 - Minimal iteration/map.
 - HTTP client as guarded module.

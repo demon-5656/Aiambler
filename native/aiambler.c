@@ -16,6 +16,7 @@
 #define MAX_PIPE 16
 #define MAX_OUTPUT 8192
 #define MAX_SCAN_JOBS 64
+#define MAX_SCRIPT_LINES 512
 #define PARALLEL_SCAN_MIN_BYTES 65536L
 
 typedef enum {
@@ -62,6 +63,8 @@ typedef struct {
 typedef struct {
     char name[MAX_VAR_NAME];
     Value value;
+    int dimension;
+    int dimensional;
 } Variable;
 
 typedef struct {
@@ -71,9 +74,19 @@ typedef struct {
     int jobs;
     int dump_ir;
     int dump_plan;
+    int current_dimension;
+    int in_dimensional_line;
+    int has_implicit_source;
+    Value implicit_source;
     Variable vars[MAX_VARS];
     int var_count;
 } Runtime;
+
+typedef struct {
+    char text[MAX_LINE];
+    int line_no;
+    int dimension;
+} ScriptLine;
 
 typedef enum {
     OP_NOP = 0,
@@ -186,6 +199,68 @@ static char *trim(char *s) {
     return s;
 }
 
+static int consume_word_prefix(char **line, const char *word, int dimension) {
+    size_t len = strlen(word);
+    if (strncmp(*line, word, len) == 0 && isspace((unsigned char)(*line)[len])) {
+        *line = trim(*line + len);
+        return dimension;
+    }
+    return -1;
+}
+
+static int parse_dimension_prefix(char **line) {
+    char *s = trim(*line);
+    if (isdigit((unsigned char)s[0]) && s[1] == ':') {
+        *line = trim(s + 2);
+        return s[0] - '0';
+    }
+    if (isdigit((unsigned char)s[0]) && isspace((unsigned char)s[1])) {
+        *line = trim(s + 1);
+        return s[0] - '0';
+    }
+
+    int dimension = consume_word_prefix(&s, "source", 3);
+    if (dimension < 0) {
+        dimension = consume_word_prefix(&s, "matrix", 2);
+    }
+    if (dimension < 0) {
+        dimension = consume_word_prefix(&s, "log", 1);
+    }
+    if (dimension < 0) {
+        dimension = consume_word_prefix(&s, "system", 0);
+    }
+    if (dimension >= 0) {
+        *line = s;
+    }
+    return dimension;
+}
+
+static void copy_line(char *dst, const char *src) {
+    strncpy(dst, src, MAX_LINE - 1);
+    dst[MAX_LINE - 1] = '\0';
+}
+
+static int is_simple_name_text(const char *text) {
+    if (!(isalpha((unsigned char)text[0]) || text[0] == '_')) {
+        return 0;
+    }
+    for (const char *p = text + 1; *p != '\0'; p++) {
+        if (!(isalnum((unsigned char)*p) || *p == '_')) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+static int has_space_text(const char *text) {
+    for (const char *p = text; *p != '\0'; p++) {
+        if (isspace((unsigned char)*p)) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
 static void strip_comment(char *s) {
     int quote = 0;
     char *start = s;
@@ -223,14 +298,6 @@ static void value_set_file(Value *value, const char *path) {
     snprintf(value->file_path, sizeof(value->file_path), "%s", path);
 }
 
-static void print_num(double num) {
-    if (num == (long long)num) {
-        printf("%lld\n", (long long)num);
-    } else {
-        printf("%.10g\n", num);
-    }
-}
-
 static void append_text(char *buf, size_t size, const char *text);
 static int apply_grep(Value *value, const char *needle);
 static int apply_nums(Value *value);
@@ -240,6 +307,7 @@ static int apply_count(Value *value);
 static int apply_pick(Value *value, const char *arg);
 static int apply_replace(Value *value, const char *spec);
 static int apply_out_md(Value *value);
+static int apply_write_file(Value *value, const char *path, int line);
 static int apply_replace_call(Value *value, char *arg);
 
 static char *unquote(char *text) {
@@ -410,8 +478,12 @@ static int save_var(Runtime *rt, const char *name, const Value *value) {
         }
         var = &rt->vars[rt->var_count++];
         snprintf(var->name, sizeof(var->name), "%s", name);
+    } else if (rt->in_dimensional_line && var->dimensional && var->dimension == rt->current_dimension) {
+        return 1;
     }
     var->value = *value;
+    var->dimension = rt->current_dimension;
+    var->dimensional = rt->in_dimensional_line;
     return 1;
 }
 
@@ -422,6 +494,75 @@ static int load_var(Runtime *rt, const char *name, Value *out, int line) {
         return 0;
     }
     *out = var->value;
+    return 1;
+}
+
+static void remember_implicit_source(Runtime *rt, const Value *value) {
+    if (rt->in_dimensional_line && rt->current_dimension >= 3) {
+        rt->implicit_source = *value;
+        rt->has_implicit_source = 1;
+    }
+}
+
+static int is_fused_boundary(char c) {
+    return c == '?' || c == '@' || c == '#' || c == '+' || c == '!' || c == '.';
+}
+
+static void read_fused_arg(char **cursor, char *arg, size_t size) {
+    int i = 0;
+    while (**cursor != '\0' && !is_fused_boundary(**cursor) && i < (int)size - 1) {
+        arg[i++] = *(*cursor)++;
+    }
+    arg[i] = '\0';
+}
+
+static int apply_fused_compact_step(Value *value, char *step, int line, int *matched) {
+    char *p = trim(step);
+    *matched = 0;
+    if (*p != '?' && *p != '@' && *p != '#' && *p != '+') {
+        return 1;
+    }
+    while (*p != '\0') {
+        *matched = 1;
+        if (*p == '?') {
+            p++;
+            char arg[MAX_FIELD_VALUE];
+            read_fused_arg(&p, arg, sizeof(arg));
+            if (!apply_grep(value, trim(arg))) {
+                return 0;
+            }
+        } else if (*p == '@') {
+            p++;
+            char arg[MAX_FIELD_VALUE];
+            read_fused_arg(&p, arg, sizeof(arg));
+            if (!apply_pick(value, trim(arg))) {
+                return 0;
+            }
+        } else if (p[0] == '#' && p[1] == '#') {
+            if (!apply_count(value)) {
+                return 0;
+            }
+            p += 2;
+        } else if (*p == '#') {
+            if (!apply_nums(value)) {
+                return 0;
+            }
+            p++;
+        } else if (p[0] == '+' && p[1] == '/') {
+            if (!apply_avg(value)) {
+                return 0;
+            }
+            p += 2;
+        } else if (*p == '+') {
+            if (!apply_numeric_sum(value)) {
+                return 0;
+            }
+            p++;
+        } else {
+            fprintf(stderr, "ERR_UNKNOWN_COMMAND\nline: %d\ncmd: %s\n", line, step);
+            return 0;
+        }
+    }
     return 1;
 }
 
@@ -1506,7 +1647,6 @@ static int execute_program(Runtime *rt, Program *program, int line, Value *out) 
         }
     }
     *out = value;
-    (void)rt;
     return 1;
 }
 
@@ -1762,61 +1902,74 @@ static void append_text(char *buf, size_t size, const char *text) {
     }
 }
 
-static int apply_out_md(Value *value) {
-    char out[MAX_OUTPUT];
+static void render_num(char *out, size_t size, double num) {
+    if (num == (long long)num) {
+        snprintf(out, size, "%lld\n", (long long)num);
+    } else {
+        snprintf(out, size, "%.10g\n", num);
+    }
+}
+
+static int render_value(Value *value, char *out, size_t size, int line) {
     out[0] = '\0';
     if (value->type == VALUE_GROUPS) {
         for (int g = 0; g < value->group_count; g++) {
-            append_text(out, sizeof(out), value->groups[g].key);
-            append_text(out, sizeof(out), ":\n");
+            append_text(out, size, value->groups[g].key);
+            append_text(out, size, ":\n");
             for (int r = 0; r < value->groups[g].row_count; r++) {
-                append_text(out, sizeof(out), "- ");
+                append_text(out, size, "- ");
                 for (int f = 0; f < value->groups[g].rows[r].count; f++) {
                     if (f > 0) {
-                        append_text(out, sizeof(out), "; ");
+                        append_text(out, size, "; ");
                     }
-                    append_text(out, sizeof(out), value->groups[g].rows[r].fields[f].key);
-                    append_text(out, sizeof(out), ": ");
-                    append_text(out, sizeof(out), value->groups[g].rows[r].fields[f].value);
+                    append_text(out, size, value->groups[g].rows[r].fields[f].key);
+                    append_text(out, size, ": ");
+                    append_text(out, size, value->groups[g].rows[r].fields[f].value);
                 }
-                append_text(out, sizeof(out), "\n");
+                append_text(out, size, "\n");
             }
-            append_text(out, sizeof(out), "\n");
+            append_text(out, size, "\n");
         }
     } else if (value->type == VALUE_ROWS) {
         for (int r = 0; r < value->row_count; r++) {
-            append_text(out, sizeof(out), "- ");
+            append_text(out, size, "- ");
             for (int f = 0; f < value->rows[r].count; f++) {
                 if (f > 0) {
-                    append_text(out, sizeof(out), "; ");
+                    append_text(out, size, "; ");
                 }
-                append_text(out, sizeof(out), value->rows[r].fields[f].key);
-                append_text(out, sizeof(out), ": ");
-                append_text(out, sizeof(out), value->rows[r].fields[f].value);
+                append_text(out, size, value->rows[r].fields[f].key);
+                append_text(out, size, ": ");
+                append_text(out, size, value->rows[r].fields[f].value);
             }
-            append_text(out, sizeof(out), "\n");
+            append_text(out, size, "\n");
         }
     } else if (value->type == VALUE_NUM) {
-        print_num(value->num);
-        return 1;
+        render_num(out, size, value->num);
     } else if (value->type == VALUE_TEXT) {
-        printf("%s", value->text);
+        append_text(out, size, value->text);
         if (value->text[0] != '\0' && value->text[strlen(value->text) - 1] != '\n') {
-            printf("\n");
+            append_text(out, size, "\n");
         }
-        return 1;
     } else if (value->type == VALUE_FILE) {
         if (value->scan_nums) {
             if (!scan_file_reduce(value, 0, 0)) {
                 return 0;
             }
-            print_num(value->num);
+            render_num(out, size, value->num);
             return 1;
         }
-        if (!materialize_file(value, 0)) {
+        if (!materialize_file(value, line)) {
             return 0;
         }
-        return apply_out_md(value);
+        return render_value(value, out, size, line);
+    }
+    return 1;
+}
+
+static int apply_out_md(Value *value) {
+    char out[MAX_OUTPUT];
+    if (!render_value(value, out, sizeof(out), 0)) {
+        return 0;
     }
     value_clear(value);
     value->type = VALUE_TEXT;
@@ -1825,9 +1978,26 @@ static int apply_out_md(Value *value) {
     return 1;
 }
 
+static int apply_write_file(Value *value, const char *path, int line) {
+    char out[MAX_OUTPUT];
+    char local[MAX_LINE];
+    snprintf(local, sizeof(local), "%s", path);
+    char *clean_path = unquote(local);
+    if (!render_value(value, out, sizeof(out), line)) {
+        return 0;
+    }
+    FILE *file = fopen(clean_path, "w");
+    if (file == NULL) {
+        fprintf(stderr, "ERR_FILE\nline: %d\nreason: cannot write %s\n", line, clean_path);
+        return 0;
+    }
+    fputs(out, file);
+    fclose(file);
+    value_set_text(value, out);
+    return 1;
+}
+
 static int run_update(Runtime *rt, char *expr, int line, Value *out) {
-    char cmd[MAX_LINE];
-    snprintf(cmd, sizeof(cmd), "%s", expr);
     char *params_text = strchr(expr, ' ');
     if (params_text == NULL) {
         params_text = "";
@@ -1854,7 +2024,6 @@ static int run_update(Runtime *rt, char *expr, int line, Value *out) {
         snprintf(out->text, sizeof(out->text), "ok: true\naction: update\nentity: task\nid: %s\n", id == NULL ? "" : id);
     }
     printf("%s", out->text);
-    (void)cmd;
     return 1;
 }
 
@@ -1915,6 +2084,13 @@ static int eval_atom(Runtime *rt, char *atom, int line, Value *out) {
 
 static int apply_step(Runtime *rt, Value *value, char *step, int line) {
     step = trim(step);
+    int fused = 0;
+    if (!apply_fused_compact_step(value, step, line, &fused)) {
+        return 0;
+    }
+    if (fused) {
+        return 1;
+    }
     if (*step == '?') {
         return apply_grep(value, trim(step + 1));
     }
@@ -1923,6 +2099,12 @@ static int apply_step(Runtime *rt, Value *value, char *step, int line) {
     }
     if (strcmp(step, "+") == 0) {
         return apply_numeric_sum(value);
+    }
+    if (*step == '.') {
+        return apply_write_file(value, trim(step + 1), line);
+    }
+    if (strncmp(step, "!>", 2) == 0) {
+        return apply_write_file(value, trim(step + 2), line);
     }
     if (strcmp(step, "!") == 0) {
         return apply_out_md(value);
@@ -2038,6 +2220,14 @@ static int eval_expr(Runtime *rt, char *expr, int line, Value *out) {
         value_clear(out);
         return 1;
     }
+    if (part_count == 1 && is_fused_boundary(parts[0][0]) && parts[0][0] != '!' && parts[0][0] != '.') {
+        if (!rt->has_implicit_source) {
+            fprintf(stderr, "ERR_RUNTIME\nline: %d\nreason: missing implicit source\n", line);
+            return 0;
+        }
+        *out = rt->implicit_source;
+        return apply_step(rt, out, parts[0], line);
+    }
     Program program;
     if (parse_compact_program(parts, part_count, &program) || parse_verbose_program(parts, part_count, &program)) {
         if (rt->dump_ir) {
@@ -2058,6 +2248,26 @@ static int eval_expr(Runtime *rt, char *expr, int line, Value *out) {
         }
     }
     return 1;
+}
+
+static int run_suffix_sink(Runtime *rt, char *line, int line_no, int *matched) {
+    *matched = 0;
+    char *dot = strchr(line, '.');
+    if (dot == NULL || strchr(line, '|') != NULL || strchr(line, '<') != NULL) {
+        return 1;
+    }
+    *dot = '\0';
+    char *name = trim(line);
+    char *path = trim(dot + 1);
+    if (*path == '\0' || has_space_text(path) || !is_simple_name_text(name)) {
+        *dot = '.';
+        return 1;
+    }
+    char compact_expr[MAX_LINE];
+    snprintf(compact_expr, sizeof(compact_expr), "%s|.%s", name, path);
+    Value value;
+    *matched = 1;
+    return eval_expr(rt, compact_expr, line_no, &value);
 }
 
 static int run_line(Runtime *rt, char *line, int line_no) {
@@ -2093,6 +2303,13 @@ static int run_line(Runtime *rt, char *line, int line_no) {
         return 1;
     }
 
+    if (rt->in_dimensional_line && rt->current_dimension >= 3 && line[0] == '<') {
+        Value value;
+        lazy_path(trim(line + 1), &value);
+        remember_implicit_source(rt, &value);
+        return 1;
+    }
+
     char *compact_read = strchr(line, '<');
     if (compact_read != NULL && compact_read != line) {
         *compact_read = '\0';
@@ -2100,6 +2317,7 @@ static int run_line(Runtime *rt, char *line, int line_no) {
         char *path = trim(compact_read + 1);
         Value value;
         lazy_path(path, &value);
+        remember_implicit_source(rt, &value);
         if (!save_var(rt, name, &value)) {
             fprintf(stderr, "ERR_RUNTIME\nline: %d\nreason: too many variables\n", line_no);
             return 0;
@@ -2126,6 +2344,13 @@ static int run_line(Runtime *rt, char *line, int line_no) {
 
     Value value;
     size_t len = strlen(line);
+    int suffix_sink = 0;
+    if (!run_suffix_sink(rt, line, line_no, &suffix_sink)) {
+        return 0;
+    }
+    if (suffix_sink) {
+        return 1;
+    }
     if (len > 1 && line[len - 1] == '!') {
         line[len - 1] = '\0';
         char compact_expr[MAX_LINE];
@@ -2133,6 +2358,19 @@ static int run_line(Runtime *rt, char *line, int line_no) {
         return eval_expr(rt, compact_expr, line_no, &value);
     }
     return eval_expr(rt, line, line_no, &value);
+}
+
+static int run_script_line(Runtime *rt, const ScriptLine *script_line) {
+    char line[MAX_LINE];
+    int prev_dimension = rt->current_dimension;
+    int prev_dimensional = rt->in_dimensional_line;
+    rt->current_dimension = script_line->dimension;
+    rt->in_dimensional_line = script_line->dimension >= 0;
+    copy_line(line, script_line->text);
+    int ok = run_line(rt, line, script_line->line_no);
+    rt->current_dimension = prev_dimension;
+    rt->in_dimensional_line = prev_dimensional;
+    return ok;
 }
 
 static int run_file(const char *path, int jobs, int dump_ir, int dump_plan) {
@@ -2146,16 +2384,64 @@ static int run_file(const char *path, int jobs, int dump_ir, int dump_plan) {
     rt.jobs = jobs < 1 ? 1 : jobs;
     rt.dump_ir = dump_ir;
     rt.dump_plan = dump_plan;
-    char line[MAX_LINE];
+    ScriptLine lines[MAX_SCRIPT_LINES];
+    int line_count = 0;
+    int has_dimensions = 0;
+    int max_dimension = 0;
+    char raw[MAX_LINE];
     int line_no = 0;
-    while (fgets(line, sizeof(line), file) != NULL) {
+    while (fgets(raw, sizeof(raw), file) != NULL) {
         line_no++;
-        if (!run_line(&rt, line, line_no)) {
+        if (line_count >= MAX_SCRIPT_LINES) {
+            fprintf(stderr, "ERR_PARSE\nline: %d\nreason: too many script lines\n", line_no);
             fclose(file);
             return 1;
         }
+        char prepared[MAX_LINE];
+        copy_line(prepared, raw);
+        strip_comment(prepared);
+        char *body = trim(prepared);
+        int dimension = parse_dimension_prefix(&body);
+        if (dimension >= 0) {
+            has_dimensions = 1;
+            if (dimension > max_dimension) {
+                max_dimension = dimension;
+            }
+            copy_line(lines[line_count].text, body);
+        } else {
+            copy_line(lines[line_count].text, raw);
+        }
+        lines[line_count].line_no = line_no;
+        lines[line_count].dimension = dimension;
+        line_count++;
     }
     fclose(file);
+
+    if (!has_dimensions) {
+        for (int i = 0; i < line_count; i++) {
+            if (!run_script_line(&rt, &lines[i])) {
+                return 1;
+            }
+        }
+        return 0;
+    }
+
+    for (int i = 0; i < line_count; i++) {
+        if (lines[i].dimension < 0) {
+            if (!run_script_line(&rt, &lines[i])) {
+                return 1;
+            }
+        }
+    }
+    for (int dimension = max_dimension; dimension >= 0; dimension--) {
+        for (int i = 0; i < line_count; i++) {
+            if (lines[i].dimension == dimension) {
+                if (!run_script_line(&rt, &lines[i])) {
+                    return 1;
+                }
+            }
+        }
+    }
     return 0;
 }
 

@@ -95,6 +95,20 @@ build/aiambler --dump-ir --dump-plan examples/compact.ai
 `REDUCE`, `SINK`, and `ORDERED`.
 Direct verbose read pipelines also normalize into IR and can use the same
 planned scan/reduce backend.
+Token-min candidates for units, loops, objects, and dimensional namespaces are
+tracked in [docs/TOKEN_MIN.md](docs/TOKEN_MIN.md) and
+[docs/DIMENSIONS.md](docs/DIMENSIONS.md).
+The native runtime already supports dimension-prefixed line ordering (`3 `,
+`2 `, `1 `, `0 `, colon variants such as `3:`, and
+`source`/`matrix`/`log`/`system`). Repeated writes to the same name inside one
+dimension keep the value from the earlier source line.
+The `!>path` sink writes the current value to a file for system-output steps;
+`.path` is the shorter pipeline sink form, and `name.path` is the shortest
+suffix form for writing a simple variable.
+For token-min generated code, a bare `3 <file` stores an implicit source and
+lower dimensions can use fused compact pipelines such as `2 x=?needle@2#+`.
+Parallel execution and strict per-dimension variable visibility are still
+tracked as follow-up work.
 
 Native smoke tests:
 
@@ -180,17 +194,17 @@ python3 benchmarks/token_count.py --tiktoken --encoding cl100k_base
 Current token-count result with `tiktoken:cl100k_base`:
 
 ```text
-task        compact verbose best best_form python awk  py/best awk/best
-logs             16      19   16 compact       56  51     3.50     3.19
-finance          23      28   23 compact       60  31     2.61     1.35
-prices_avg       17      20   17 compact       62  63     3.65     3.71
-replace          22      23   22 compact       27  23     1.23     1.05
-composite        16      19   16 compact       56  51     3.50     3.19
+task        compact verbose token_min best best_form python awk  py/best awk/best
+logs             16      19        16   16 compact       56  51     3.50     3.19
+finance          23      28        23   23 compact       60  31     2.61     1.35
+prices_avg       17      20        17   17 compact       62  63     3.65     3.71
+replace          22      23        22   22 compact       27  23     1.23     1.05
+composite        16      19        16   16 compact       56  51     3.50     3.19
 ```
 
 Compact syntax is not assumed to be token-optimal. The benchmark compares both
-compact and verbose Aiambler forms, then reports the cheaper active form as
-`best`.
+compact and verbose Aiambler forms, tracks a `token_min` profile for model
+generation, and reports the cheaper active form as `best`.
 
 Remove generated local artifacts:
 

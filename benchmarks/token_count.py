@@ -43,20 +43,21 @@ def main() -> int:
     tokenizer = load_tokenizer(args.tiktoken, args.encoding)
     cases = setup()
     print(f"tokenizer={tokenizer.name}")
-    print("task        compact verbose best best_form python awk  py/best awk/best")
+    print("task        compact verbose token_min best best_form python awk  py/best awk/best")
     for case in cases:
         compact_tok = tokenizer.count(case.ai)
         verbose_tok = tokenizer.count(case.ai_verbose)
+        token_min_tok = tokenizer.count(case.ai_min)
         py_tok = tokenizer.count(case.py)
         awk_tok = tokenizer.count(case.awk)
-        if compact_tok <= verbose_tok:
-            best_tok = compact_tok
-            best_form = "compact"
-        else:
-            best_tok = verbose_tok
-            best_form = "verbose"
+        candidates = {
+            "compact": compact_tok,
+            "verbose": verbose_tok,
+            "token_min": token_min_tok,
+        }
+        best_form, best_tok = min(candidates.items(), key=lambda item: item[1])
         print(
-            f"{case.name:<11} {compact_tok:7d} {verbose_tok:7d} {best_tok:4d} "
+            f"{case.name:<11} {compact_tok:7d} {verbose_tok:7d} {token_min_tok:9d} {best_tok:4d} "
             f"{best_form:<9} {py_tok:6d} {awk_tok:3d} {py_tok / best_tok:8.2f} {awk_tok / best_tok:8.2f}"
         )
     return 0

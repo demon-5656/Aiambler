@@ -16,6 +16,7 @@ class Case:
     name: str
     ai: str
     ai_verbose: str
+    ai_min: str
     py: str
     awk: str
     ai_cmd: list[str]
@@ -67,9 +68,11 @@ def setup() -> list[Case]:
         "replace": "<benchmarks/agent_data/config.txt|replace(localhost,127.0.0.1)|output\n",
         "composite": "<benchmarks/agent_data/data.log|filter(metric)|extract_numbers|sum|output\n",
     }
+    token_min_scripts = scripts.copy()
     for name, text in scripts.items():
         write(DATA / f"{name}.ai", text)
         write(DATA / f"{name}_verbose.ai", verbose_scripts[name])
+        write(DATA / f"{name}_min.ai", token_min_scripts[name])
 
     py = {
         "logs": """import re\ns=0\nfor line in open('benchmarks/agent_data/server.log'):\n    if 'ERROR' in line:\n        s += sum(map(int, re.findall(r'[-+]?\\d+(?:\\.\\d+)?', line)))\nprint(s)\n""",
@@ -86,6 +89,7 @@ def setup() -> list[Case]:
             "logs",
             scripts["logs"],
             verbose_scripts["logs"],
+            token_min_scripts["logs"],
             py["logs"],
             "awk '/ERROR/ { for(i=1;i<=NF;i++) if($i ~ /^[-+]?[0-9]+(\\.[0-9]+)?$/) s+=$i } END{print s}' benchmarks/agent_data/server.log",
             ["build/aiambler", str(DATA / "logs.ai")],
@@ -96,6 +100,7 @@ def setup() -> list[Case]:
             "finance",
             scripts["finance"],
             verbose_scripts["finance"],
+            token_min_scripts["finance"],
             py["finance"],
             "awk -F, '$1 ~ /^2026-06/ {s+=$2} END{print s}' benchmarks/agent_data/transactions.csv",
             ["build/aiambler", str(DATA / "finance.ai")],
@@ -106,6 +111,7 @@ def setup() -> list[Case]:
             "prices_avg",
             scripts["prices"],
             verbose_scripts["prices"],
+            token_min_scripts["prices"],
             py["prices"],
             "awk '/price/ { for(i=1;i<=NF;i++) if($i ~ /[0-9]+\\.[0-9]+/) {gsub(/[^0-9.]/,\"\",$i); s+=$i; c++}} END{print s/c}' benchmarks/agent_data/prices.txt",
             ["build/aiambler", str(DATA / "prices.ai")],
@@ -116,6 +122,7 @@ def setup() -> list[Case]:
             "replace",
             scripts["replace"],
             verbose_scripts["replace"],
+            token_min_scripts["replace"],
             py["replace"],
             "awk '{gsub(/localhost/,\"127.0.0.1\"); print}' benchmarks/agent_data/config.txt",
             ["build/aiambler", str(DATA / "replace.ai")],
@@ -126,6 +133,7 @@ def setup() -> list[Case]:
             "composite",
             scripts["composite"],
             verbose_scripts["composite"],
+            token_min_scripts["composite"],
             py["composite"],
             "awk '/metric/ { for(i=1;i<=NF;i++) if($i ~ /^[-+]?[0-9]+(\\.[0-9]+)?$/) s+=$i } END{print s}' benchmarks/agent_data/data.log",
             ["build/aiambler", str(DATA / "composite.ai")],

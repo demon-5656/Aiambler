@@ -47,6 +47,53 @@ AI
 "$BIN" "$TMP_DIR/compact.ai" > "$TMP_DIR/compact.out"
 grep -q "^160$" "$TMP_DIR/compact.out"
 
+cat > "$TMP_DIR/dimensions.ai" <<AI
+1:s!
+2:s=t|?price|#|+
+3:t<$TMP_DIR/input.txt
+AI
+
+"$BIN" "$TMP_DIR/dimensions.ai" > "$TMP_DIR/dimensions.out"
+grep -q "^160$" "$TMP_DIR/dimensions.out"
+
+cat > "$TMP_DIR/dimensions_words.ai" <<AI
+log a!
+matrix a=t|?price|#|+/
+source t<$TMP_DIR/input.txt
+AI
+
+"$BIN" "$TMP_DIR/dimensions_words.ai" > "$TMP_DIR/dimensions_words.out"
+grep -q "^53.33333333$" "$TMP_DIR/dimensions_words.out"
+
+cat > "$TMP_DIR/dimensions_conflict.ai" <<'AI'
+2:x=1
+2:x=2
+1:x!
+AI
+
+"$BIN" "$TMP_DIR/dimensions_conflict.ai" > "$TMP_DIR/dimensions_conflict.out"
+grep -q "^1$" "$TMP_DIR/dimensions_conflict.out"
+
+cat > "$TMP_DIR/events.csv" <<'TXT'
+kind,value
+err,7
+warn,3
+err,11
+warn,5
+TXT
+
+cat > "$TMP_DIR/dimensions_io.ai" <<AI
+0 w.$TMP_DIR/warn_report.txt
+0 e!
+2 w=?warn@2#+
+2 e=?err@2#+
+3 <$TMP_DIR/events.csv
+AI
+
+"$BIN" "$TMP_DIR/dimensions_io.ai" > "$TMP_DIR/dimensions_io.out"
+grep -q "^18$" "$TMP_DIR/dimensions_io.out"
+grep -q "^8$" "$TMP_DIR/warn_report.txt"
+
 cat > "$TMP_DIR/compact_direct.ai" <<AI
 <$TMP_DIR/input.txt|?price|#|+|!
 AI

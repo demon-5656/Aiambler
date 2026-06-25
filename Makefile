@@ -5,7 +5,7 @@ LDFLAGS ?= -s -pthread
 BUILD_DIR := build
 NATIVE_BIN := $(BUILD_DIR)/aiambler
 
-.PHONY: all native test test-native bench-agent bench-multistep bench-tokens clean
+.PHONY: all native test test-native bench-agent bench-multistep bench-syntax bench-tokens clean
 
 all: native
 
@@ -27,6 +27,9 @@ bench-agent: native
 
 bench-multistep: native
 	python3 benchmarks/multistep_tasks.py --runs 20
+
+bench-syntax:
+	python3 benchmarks/syntax_tokens.py --tiktoken --encoding cl100k_base
 
 bench-tokens:
 	python3 benchmarks/token_count.py
