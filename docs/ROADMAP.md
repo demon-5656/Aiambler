@@ -3,6 +3,138 @@
 Aiambler should become a compact runtime for AI-generated commands, not a
 human-first scripting language. The native runtime is the source of truth.
 
+## Product Goal
+
+Aiambler is a deterministic execution layer for LLM agents. The model should
+reason in natural language, then emit short scripts for exact operations:
+parsing, filtering, numeric extraction, aggregation, reporting, and guarded IO.
+
+The project succeeds when common agent-side tasks can be solved with fewer
+tokens and less startup overhead than Python, while producing verifiable results
+instead of model-estimated arithmetic.
+
+## Release Roadmap
+
+### v0.2: Verified Token-Min Core
+
+Status: active.
+
+Goal: make the current primitive set reliable, documented, and measurable.
+
+Deliverables:
+
+- compact and verbose forms normalize into one IR path where practical;
+- golden tasks verify Aiambler output against Python and AWK;
+- token benchmarks use `tiktoken` and are recorded in README;
+- fused scan/reduce paths cover grep, field pick, numbers, sum, average, count;
+- token-min dimension forms are documented and covered by smoke tests;
+- generated artifacts are removable via `make clean`.
+
+Exit criteria:
+
+- `make test` passes;
+- `make bench-golden` passes;
+- `benchmarks/syntax_tokens.py --tiktoken --encoding cl100k_base` records
+  token-min candidate costs;
+- README contains current benchmark results and project positioning.
+
+### v0.3: Robust Agent Runtime
+
+Goal: make generated scripts fail clearly and safely.
+
+Deliverables:
+
+- strict dimension visibility: `Dn` can read `Dn..max`, not lower dimensions;
+- negative tests for unknown variables, missing implicit source, bad columns,
+  invalid writes, and parse errors;
+- clearer diagnostics with line, operation, and expected form;
+- central normalizer from readable, compact, and token-min forms into IR;
+- stable `--dump-ir` and `--dump-plan` output for all compact pipelines;
+- README section for common model prompts and repair hints.
+
+Exit criteria:
+
+- malformed generated scripts produce actionable errors;
+- dimension conflicts and visibility violations are tested;
+- no token-min syntax bypasses IR normalization.
+
+### v0.4: Better Data Primitives
+
+Goal: cover the common tasks where LLMs currently reach for Python.
+
+Deliverables:
+
+- comparison filters: `?>N`, `?<N`, `?=x`, `?!=x`;
+- regex filter/extract: `?~pattern` or measured alternative;
+- min/max reductions;
+- unique/count-by/top-N primitives;
+- JSON path extraction;
+- date/time parse and simple date comparisons;
+- stronger CSV parsing for quoted fields.
+
+Exit criteria:
+
+- golden tasks include logs, CSV, JSON, dates, and grouped reductions;
+- Aiambler remains smaller than Python on the golden token benchmark;
+- each new primitive has compact and readable examples.
+
+### v0.5: Parallel Dimension Scheduler
+
+Goal: make the dimensional model operational, not only syntactic.
+
+Deliverables:
+
+- same-dimension independent assignments can run concurrently;
+- first-write-wins remains deterministic for same-name conflicts;
+- scheduler uses IR metadata: `SOURCE`, `MAP`, `REDUCE`, `SINK`, `ORDERED`;
+- parallelism is automatic and controlled by `--jobs N`;
+- benchmark reports speedup and overhead thresholds.
+
+Exit criteria:
+
+- independent `2D` reductions over the same `3D` source execute safely;
+- ordered sinks in `1D`/`0D` remain deterministic;
+- scheduler can be disabled for debugging.
+
+### v0.6: Safe External Access
+
+Goal: let agents use the outside world without turning Aiambler into an
+unrestricted shell.
+
+Deliverables:
+
+- explicit access modes for file writes, shell, HTTP, and connectors;
+- guarded `http.get`/`http.post` primitives;
+- guarded shell primitive with allowlist/denylist policy;
+- MCP wrapper exposing Aiambler as a tool;
+- dry-run mode for write/network/system actions.
+
+Exit criteria:
+
+- default mode is read-only;
+- write/network actions require explicit mode;
+- MCP integration can execute golden tasks through the native runtime.
+
+### v1.0: Stable LLM Execution Layer
+
+Goal: provide a small, stable runtime that agents can rely on.
+
+Deliverables:
+
+- stable language spec for core primitives;
+- stable IR and plan dump format;
+- versioned token-min profile;
+- packaged native binary;
+- MCP server;
+- safety documentation;
+- benchmark suite used as release gate.
+
+Exit criteria:
+
+- no breaking syntax changes without migration notes;
+- benchmark and smoke tests are part of release process;
+- agents can choose readable or token-min syntax based on context budget.
+
 ## Principles
 
 - Keep the core byte-oriented and ASCII-first.
@@ -149,6 +281,8 @@ Benchmark package:
 
 - Maintain five real agent tasks: logs, finance CSV, extraction, replace,
   composite pipeline.
+- Maintain golden agent tasks for exact text parsing, numeric aggregation, and
+  IO verification against Python/AWK baselines.
 - Maintain multi-step tasks that combine repeated scans, field extraction,
   replacement, reductions, and multiple outputs.
 - Report exact generated-code token counts via `tiktoken`.
@@ -163,6 +297,9 @@ Benchmark package:
 
 Agent documentation:
 
+- Product philosophy and boundaries in [PHILOSOPHY.md](PHILOSOPHY.md).
+- Primitive coverage matrix in [PRIMITIVES.md](PRIMITIVES.md).
+- Golden task set in [GOLDEN_TASKS.md](GOLDEN_TASKS.md).
 - Prompt examples that generate valid compact Aiambler.
 - Template library for common tasks.
 - Safety guide for read/write/network/shell operations.
